@@ -4,6 +4,7 @@ import {
   RegenerateServiceStub,
 } from './index';
 import type { Project } from '../../types';
+import { ForbiddenError, NotFoundError } from '../../utils';
 
 function createProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -62,6 +63,30 @@ describe('regenerate flow', () => {
         requestedByUserId: 'user-1',
       }),
     ).rejects.toThrow('User does not own this project');
+
+    await expect(
+      endpoint.regenerateDocs({
+        projectId: 'project-1',
+        triggeredBy: 'manual',
+        requestedByUserId: 'user-1',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  test('manual regenerate rejects missing project with not-found error classification', async () => {
+    const triggerService = new RegenerateServiceStub();
+    const endpoint = createRegenerateDocsEndpointService({
+      triggerService,
+      getProjectById: async () => null,
+    });
+
+    await expect(
+      endpoint.regenerateDocs({
+        projectId: 'missing-project',
+        triggeredBy: 'manual',
+        requestedByUserId: 'user-1',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   test('github actions trigger is accepted for github-backed project', async () => {

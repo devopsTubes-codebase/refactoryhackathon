@@ -1,4 +1,10 @@
-import { createProjectForUser, listProjectsForUser, type CreateProjectInput } from '@codebase-wiki/api';
+import {
+  createDataResponse,
+  initializePostgresSchema,
+  PostgresProjectStore,
+  toBackendErrorResponse,
+  type CreateProjectInput,
+} from '@codebase-wiki/api';
 import { NextResponse } from 'next/server';
 import { getRequiredSessionIdentity, UnauthorizedError } from '@/lib/auth/session';
 
@@ -29,22 +35,17 @@ function toBadRequestResponse(message: string) {
 export async function GET() {
   try {
     const identity = await getRequiredSessionIdentity();
-    const projects = listProjectsForUser(identity);
-    return NextResponse.json({ data: projects }, { status: 200 });
+    await initializePostgresSchema();
+    const projects = await new PostgresProjectStore().listProjects(identity);
+    return NextResponse.json(createDataResponse(projects), { status: 200 });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return toUnauthorizedResponse();
     }
 
-    return NextResponse.json(
-      {
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to fetch projects',
-        },
-      },
-      { status: 500 }
-    );
+    const response = toBackendErrorResponse(error, 'Failed to fetch projects');
+
+    return NextResponse.json(response.body, { status: response.status });
   }
 }
 
@@ -57,30 +58,23 @@ export async function POST(request: Request) {
       return toBadRequestResponse('name, sourceType, and sourceInput are required');
     }
 
-    const project = createProjectForUser(identity, {
+    await initializePostgresSchema();
+    const project = await new PostgresProjectStore().createProject(identity, {
       name: body.name,
       sourceType: body.sourceType,
       sourceInput: body.sourceInput,
     });
 
-    return NextResponse.json({ data: project }, { status: 201 });
+    return NextResponse.json(createDataResponse(project), { status: 201 });
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return toUnauthorizedResponse();
     }
 
-    if (error instanceof Error) {
-      return toBadRequestResponse(error.message);
-    }
+    const response = error instanceof Error
+      ? toBackendErrorResponse(error, 'Failed to create project')
+      : toBackendErrorResponse(error, 'Failed to create project');
 
-    return NextResponse.json(
-      {
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to create project',
-        },
-      },
-      { status: 500 }
-    );
+    return NextResponse.json(response.body, { status: response.status });
   }
 }

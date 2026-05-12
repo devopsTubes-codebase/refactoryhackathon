@@ -1,4 +1,7 @@
 export interface BackendConfig {
+  database: {
+    url: string;
+  };
   ai: {
     provider: 'openai';
     apiKey: string;
@@ -52,6 +55,9 @@ function getNumberEnv(name: string, fallback: number): number {
 }
 
 const config: BackendConfig = {
+  database: {
+    url: getEnv('DATABASE_URL', 'changeme_database_url'),
+  },
   ai: {
     provider: 'openai',
     apiKey: getEnv('OPENAI_API_KEY', 'changeme-openai-api-key'),

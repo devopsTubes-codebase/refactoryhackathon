@@ -10,6 +10,7 @@ import type {
   RegenerateDocsEndpointRequest,
   RegenerateDocsEndpointResponse,
 } from '../../types';
+import { ForbiddenError, NotFoundError } from '../../utils';
 
 export interface RegenerateServiceContract {
   triggerRegeneration(input: RegenerateDocsRequest): Promise<RegenerateDocsResponse>;
@@ -57,11 +58,11 @@ export function createRegenerateDocsEndpointService(input: {
       const project = await input.getProjectById(request.projectId);
 
       if (!project) {
-        throw new Error('Project not found');
+        throw new NotFoundError('Project not found');
       }
 
       if (project.ownership.ownerUserId !== request.requestedByUserId) {
-        throw new Error('User does not own this project');
+        throw new ForbiddenError('User does not own this project');
       }
 
       const result = await input.triggerService.triggerRegeneration({
@@ -86,7 +87,7 @@ export function createRegenerateWorkflowTriggerService(input: {
       const project = await input.getProjectById(request.projectId);
 
       if (!project) {
-        throw new Error('Project not found');
+        throw new NotFoundError('Project not found');
       }
 
       if (project.sourceType !== 'github') {
