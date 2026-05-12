@@ -71,6 +71,8 @@ import {
   createRegenerateWorkflowTriggerService,
   RegenerateServiceStub,
 } from '../regenerate';
+import { InMemoryJobLogStore, JobLogger } from '../job-logs';
+import type { JobLogPhase } from '../../types';
 
 export type JobStatus =
   | 'queued'
@@ -147,6 +149,22 @@ export class CapturedLogs {
 
   serialized(): string {
     return JSON.stringify(this.entries);
+  }
+}
+
+export class CapturedJobLogs {
+  constructor(private readonly store: InMemoryJobLogStore) {}
+
+  async logger(projectId: string): Promise<JobLogger> {
+    return new JobLogger({ projectId, store: this.store });
+  }
+
+  phases(projectId?: string): JobLogPhase[] {
+    return this.store.snapshot(projectId).map((log) => log.phase);
+  }
+
+  serialized(projectId?: string): string {
+    return JSON.stringify(this.store.snapshot(projectId));
   }
 }
 
@@ -266,6 +284,8 @@ export function createServiceLayerE2EHarness() {
   const aiClient = new FakeAIClient();
   const githubCloneAdapter = new FakeGitHubCloneAdapter();
   const logs = new CapturedLogs();
+  const jobLogStore = new InMemoryJobLogStore();
+  const jobLogs = new CapturedJobLogs(jobLogStore);
   const patStorage = new MemoryPATStorage();
   const clonePreparation = new PrivateRepositoryClonePreparationService(patStorage);
 
@@ -281,6 +301,16 @@ export function createServiceLayerE2EHarness() {
         contextBuilder: new CompactContextBuilder(),
       }),
       fallback: new EnrichmentFallbackStrategy(new TechStackDetectorFallback(), new CompactContextBuilder()),
+      onEvent: async (event) => {
+        const logger = await jobLogs.logger(event.projectId);
+        if (event.type === 'start') {
+          await logger.info('enriching', 'Starting codebase enrichment');
+        } else if (event.type === 'success') {
+          await logger.info('enriching', 'Codebase enrichment completed');
+        } else {
+          await logger.warn('enriching', 'Codebase enrichment fallback used', { reason: event.reason });
+        }
+      },
     }),
   });
 
@@ -312,12 +342,22 @@ export function createServiceLayerE2EHarness() {
     tempRootPath: string;
     statuses: JobStatus[];
   }): Promise<PipelineResult> {
+    const jobLogger = await jobLogs.logger(input.project.id);
     try {
       input.statuses.push('scanning');
       updateProjectStatus(input.project, 'scanning');
-      const analysis = await codebaseAnalysis.analyze({
+      const rawScan = await codebaseAnalysis.runDeterministicScan({
         projectId: input.project.id,
         sourcePath: input.sourcePath,
+      });
+      await jobLogger.info('scanning', 'Scanned codebase files', {
+        fileCount: rawScan.fileCount,
+        configCount: rawScan.configFiles.length,
+        dependencyCount: Object.keys(rawScan.dependencies).length,
+      });
+      const analysis = await codebaseAnalysis.enrichAnalysis({
+        projectId: input.project.id,
+        rawScan,
       });
 
       input.statuses.push('generating');
@@ -325,6 +365,10 @@ export function createServiceLayerE2EHarness() {
       const docs = await aiDocGeneration.generateDocs({
         projectId: input.project.id,
         compactContext: analysis.compactContext,
+      });
+      await jobLogger.info('generating', 'Generated documentation pages', {
+        pageCount: docs.pages.length,
+        sidebarCount: docs.sidebar.length,
       });
 
       const semanticIndex = await buildSemanticIndex({
@@ -334,6 +378,9 @@ export function createServiceLayerE2EHarness() {
         docs: docs.pages,
         embeddingGenerator,
         vectorIndexStore,
+      });
+      await jobLogger.info('indexing', 'Indexed generated documentation', {
+        chunkCount: semanticIndex.chunkCount,
       });
 
       const retrieved = await retrieval.getDocumentation(input.project.id);
@@ -347,7 +394,9 @@ export function createServiceLayerE2EHarness() {
       input.statuses.push('completed');
       updateProjectStatus(input.project, 'completed');
       logs.info({ projectId: input.project.id, status: 'completed', failureCategory: 'none' });
+      await jobLogger.info('cleanup', 'Cleaned temporary source storage', {});
       await cleanupSourcePath(input.tempRootPath);
+      await jobLogger.completed();
 
       return {
         project: input.project,
@@ -371,6 +420,7 @@ export function createServiceLayerE2EHarness() {
         status: 'failed',
         failureCategory: error instanceof SafeBackendError ? error.code : 'UNKNOWN',
       });
+      await jobLogger.failed(error instanceof SafeBackendError ? error.code : 'UNKNOWN');
       await cleanupSourcePath(input.tempRootPath);
       throw toSafeError(error);
     }
@@ -402,8 +452,10 @@ export function createServiceLayerE2EHarness() {
     statuses: JobStatus[];
   }): Promise<PipelineResult> {
     const paths = createTempSourcePaths({ projectId: input.project.id, sourceType: 'github' });
+    const jobLogger = await jobLogs.logger(input.project.id);
 
     try {
+      await jobLogger.queued();
       input.statuses.push('cloning');
       updateProjectStatus(input.project, 'cloning');
       const prepared = await clonePreparation.prepareGitHubClone({
@@ -417,6 +469,7 @@ export function createServiceLayerE2EHarness() {
         outputPath: paths.sourcePath,
         pat: prepared.resolvedPAT,
       });
+      await jobLogger.info('cloning', 'Cloned GitHub repository', { repositoryUrl: prepared.repositoryUrl });
       return finishPipeline({
         project: input.project,
         sourcePath: paths.sourcePath,
@@ -431,6 +484,7 @@ export function createServiceLayerE2EHarness() {
         status: 'failed',
         failureCategory: error instanceof SafeBackendError ? error.code : 'UNKNOWN',
       });
+      await jobLogger.failed(error instanceof SafeBackendError ? error.code : 'UNKNOWN');
       await cleanupSourcePath(paths.rootPath);
       throw toSafeError(error);
     }
@@ -440,6 +494,7 @@ export function createServiceLayerE2EHarness() {
     aiClient,
     githubCloneAdapter,
     logs,
+    jobLogs,
     async storePAT(input: { userId: string; pat: string; githubUsername?: string }) {
       return patStorage.storePAT(input);
     },
@@ -464,11 +519,15 @@ export function createServiceLayerE2EHarness() {
       projects.set(project.id, project);
       const statuses: JobStatus[] = ['queued', 'uploading'];
       const paths = createTempSourcePaths({ projectId: project.id, sourceType: 'zip' });
+      const jobLogger = await jobLogs.logger(project.id);
 
       try {
+        await jobLogger.queued();
+        await jobLogger.info('uploading', 'Accepted ZIP upload', { fileName: input.fileName, fileSizeBytes: input.fileSizeBytes });
         statuses.push('extracting');
         updateProjectStatus(project, 'extracting');
         await extractZipToTempStorage({ zipFilePath: input.zipPath, outputPath: paths.sourcePath });
+        await jobLogger.info('extracting', 'Extracted ZIP source', {});
         return finishPipeline({
           project,
           sourcePath: paths.sourcePath,
@@ -483,6 +542,7 @@ export function createServiceLayerE2EHarness() {
           status: 'failed',
           failureCategory: error instanceof SafeBackendError ? error.code : 'INVALID_ZIP',
         });
+        await jobLogger.failed(error instanceof SafeBackendError ? error.code : 'INVALID_ZIP');
         await cleanupSourcePath(paths.rootPath);
         throw toSafeError(error);
       }
@@ -568,7 +628,7 @@ function redactEntry(entry: Record<string, string>): Record<string, string> {
 
 function redact(value: string): string {
   return value
-    .replace(/token_[A-Za-z0-9_]+/g, '[REDACTED_PAT]')
+    .replace(/credential_[A-Za-z0-9_]+/g, '[REDACTED_PAT]')
     .replace(/bad_pat_secret/g, '[REDACTED_PAT]')
     .replace(/RAW_SOURCE_SECRET/g, '[REDACTED_SOURCE]');
 }

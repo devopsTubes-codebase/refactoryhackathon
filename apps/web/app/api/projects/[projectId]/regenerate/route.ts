@@ -23,6 +23,7 @@ import {
   OpenAICompatibleAIClient,
   OpenAICompatibleEmbeddingGenerator,
   PostgresDocumentationStore,
+  PostgresJobLogStore,
   PostgresPATStore,
   PostgresProjectStore,
   PostgresVectorIndexStore,
@@ -34,6 +35,7 @@ import {
   toBackendErrorResponse,
   toRegenerateDocsApiResponse,
   createTempSourcePaths,
+  JobLogger,
 } from '@codebase-wiki/api';
 import { NextResponse } from 'next/server';
 import { getRequiredSessionIdentity, UnauthorizedError } from '@/lib/auth/session';
@@ -67,10 +69,13 @@ export async function POST(request: Request, context: { params: { projectId: str
     const config = getBackendConfig();
     const docsStore = new PostgresDocumentationStore();
     const vectorStore = new PostgresVectorIndexStore();
+    const jobLogger = new JobLogger({ projectId: project.id, store: new PostgresJobLogStore() });
     const paths = createTempSourcePaths({ projectId: project.id, sourceType: 'github' });
 
     try {
+      await jobLogger.queued('Regeneration job accepted', { triggeredBy: 'manual' });
       await projectStore.updateStatus(project.id, 'cloning');
+      await jobLogger.info('cloning', 'Cloning GitHub repository');
       const prepared = await new PrivateRepositoryClonePreparationService(new PostgresPATStore()).prepareGitHubClone({
         userId: identity.userId,
         repositoryUrl: project.sourceInput,
@@ -82,9 +87,11 @@ export async function POST(request: Request, context: { params: { projectId: str
         outputPath: paths.sourcePath,
         pat: prepared.resolvedPAT,
       });
+      await jobLogger.info('cloning', 'GitHub repository cloned', { privateClone: prepared.isPrivateClone });
 
       await projectStore.updateStatus(project.id, 'scanning');
-      const analysis = await new CodebaseAnalysisService({
+      await jobLogger.info('scanning', 'Scanning codebase files');
+      const codebaseAnalysis = new CodebaseAnalysisService({
         deterministicScanner: new DeterministicScanner({
           folderScanner: new FolderScanner({ excludeFilter: new StandardExcludeFilter() }),
           dependencyScanner: new DependencyScanner(),
@@ -96,10 +103,27 @@ export async function POST(request: Request, context: { params: { projectId: str
             contextBuilder: new CompactContextBuilder(),
           }),
           fallback: new EnrichmentFallbackStrategy(new TechStackDetectorFallback(), new CompactContextBuilder()),
+          onEvent: async (event) => {
+            if (event.type === 'start') {
+              await jobLogger.info('enriching', 'Starting codebase enrichment');
+            } else if (event.type === 'success') {
+              await jobLogger.info('enriching', 'Codebase enrichment completed');
+            } else {
+              await jobLogger.warn('enriching', 'Codebase enrichment fallback used', { reason: event.reason });
+            }
+          },
         }),
-      }).analyze({ projectId: project.id, sourcePath: paths.sourcePath });
+      });
+      const rawScan = await codebaseAnalysis.runDeterministicScan({ projectId: project.id, sourcePath: paths.sourcePath });
+      await jobLogger.info('scanning', 'Scanned codebase files', {
+        fileCount: rawScan.fileCount,
+        configCount: rawScan.configFiles.length,
+        dependencyCount: Object.keys(rawScan.dependencies).length,
+      });
+      const analysis = await codebaseAnalysis.enrichAnalysis({ projectId: project.id, rawScan });
 
       await projectStore.updateStatus(project.id, 'generating');
+      await jobLogger.info('generating', 'Generating documentation pages');
       const docs = await createAIDocGenerationService({
         pipeline: createAIDocGenerationPipelineStub({
           aiClient: new OpenAICompatibleAIClient(createOpenAIClient()),
@@ -114,8 +138,14 @@ export async function POST(request: Request, context: { params: { projectId: str
         model: config.ai.model,
         suggestedDocStructure: analysis.suggestedDocStructure,
       }).generateDocs({ projectId: project.id, compactContext: analysis.compactContext });
+      await jobLogger.info('generating', 'Generated documentation pages', {
+        pageCount: docs.pages.length,
+        sidebarCount: docs.sidebar.length,
+        hasSecondarySidebar: Boolean(docs.secondarySidebar),
+      });
 
-      await buildSemanticIndex({
+      await jobLogger.info('indexing', 'Indexing generated documentation');
+      const semanticIndex = await buildSemanticIndex({
         projectId: project.id,
         model: config.ai.embeddingModel,
         summary: analysis.compactContext,
@@ -123,10 +153,15 @@ export async function POST(request: Request, context: { params: { projectId: str
         embeddingGenerator: new OpenAICompatibleEmbeddingGenerator(new OpenAI({ apiKey: config.ai.apiKey, baseURL: config.ai.baseURL })),
         vectorIndexStore: vectorStore,
       });
+      await jobLogger.info('indexing', 'Indexed generated documentation', { chunkCount: semanticIndex.chunkCount });
       await projectStore.updateStatus(project.id, 'completed');
+      await jobLogger.info('cleanup', 'Cleaning temporary source storage');
       await cleanupSourcePath(paths.rootPath);
+      await jobLogger.completed('Regeneration completed');
     } catch (error) {
       await projectStore.updateStatus(project.id, 'failed');
+      await jobLogger.failed(error instanceof Error ? error.name : 'UNKNOWN');
+      await jobLogger.info('cleanup', 'Cleaning temporary source storage after failure');
       await cleanupSourcePath(paths.rootPath);
       throw error;
     }

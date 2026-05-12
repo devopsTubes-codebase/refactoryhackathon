@@ -53,7 +53,7 @@ describe('service layer E2E pipeline', () => {
       projectName: 'GitHub Project',
       repositoryUrl: 'https://github.com/acme/api',
     });
-    const pat = await harness.storePAT({ userId: 'user-gh', pat: 'token_secret_token' });
+    const pat = await harness.storePAT({ userId: 'user-gh', pat: 'credential_secret_value' });
 
     const first = await harness.runGitHubRegenerate({
       projectId: created.id,
@@ -78,8 +78,30 @@ describe('service layer E2E pipeline', () => {
     expect(second.docs.version).toBe(2);
     expect(second.history.map((entry) => entry.version)).toEqual([1]);
     expect(workflow.triggerSource).toBe('github-actions');
-    expect(harness.githubCloneAdapter.lastClone?.pat).toBe('token_secret_token');
-    expect(harness.logs.serialized()).not.toContain('token_secret_token');
+    expect(harness.githubCloneAdapter.lastClone?.pat).toBe('credential_secret_value');
+    expect(harness.logs.serialized()).not.toContain('credential_secret_value');
+    expect(harness.jobLogs.phases(created.id)).toEqual([
+      'queued',
+      'cloning',
+      'scanning',
+      'enriching',
+      'enriching',
+      'generating',
+      'indexing',
+      'cleanup',
+      'completed',
+      'queued',
+      'cloning',
+      'scanning',
+      'enriching',
+      'enriching',
+      'generating',
+      'indexing',
+      'cleanup',
+      'completed',
+    ]);
+    expect(harness.jobLogs.serialized(created.id)).toContain('fileCount');
+    expect(harness.jobLogs.serialized(created.id)).toContain('chunkCount');
   });
 
   test('returns safe errors, cleans temp storage, and redacts logs for failure paths', async () => {
@@ -137,7 +159,7 @@ describe('service layer E2E pipeline', () => {
       userId: 'user-errors',
       projectName: 'AI Failure',
       repositoryUrl: 'https://github.com/acme/fail-ai',
-      providedPAT: 'token_valid_secret',
+      providedPAT: 'credential_valid_secret',
     })).rejects.toMatchObject({
       code: 'AI_FAILURE',
       publicMessage: 'Documentation generation failed.',
@@ -147,8 +169,11 @@ describe('service layer E2E pipeline', () => {
     expect(logOutput).toContain('projectId');
     expect(logOutput).toContain('failureCategory');
     expect(logOutput).not.toContain('bad_pat_secret');
-    expect(logOutput).not.toContain('token_valid_secret');
+    expect(logOutput).not.toContain('credential_valid_secret');
     expect(logOutput).not.toContain('RAW_SOURCE_SECRET');
+    expect(harness.jobLogs.phases()).toContain('failed');
+    expect(harness.jobLogs.serialized()).not.toContain('credential_valid_secret');
+    expect(harness.jobLogs.serialized()).not.toContain('RAW_SOURCE_SECRET');
     expect(harness.getStatusContract()).toEqual([
       'queued',
       'uploading',

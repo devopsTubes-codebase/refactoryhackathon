@@ -43,6 +43,12 @@ export interface AgentEnrichmentBoundaryDependencies {
   spawner: AgentEnrichmentSpawnerContract;
   fallback: EnrichmentFallbackStrategyContract;
   timeoutMs?: number;
+  onEvent?: (event: {
+    projectId: string;
+    type: 'start' | 'success' | 'fallback';
+    reason?: EnrichmentFallbackContext['reason'];
+    message?: string;
+  }) => void | Promise<void>;
 }
 
 export class StructuredPromptBuilder implements EnrichmentPromptBuilderContract {
@@ -76,6 +82,7 @@ export class AgentEnrichmentBoundary implements AgentEnrichmentBoundaryContract 
       projectId: input.projectId,
       rawScan: input.rawScan,
     });
+    await this.deps.onEvent?.({ projectId: input.projectId, type: 'start', message: 'Agent enrichment started' });
 
     try {
       const enriched = await withTimeout(
@@ -89,6 +96,12 @@ export class AgentEnrichmentBoundary implements AgentEnrichmentBoundaryContract 
       );
 
       if (!isValidEnrichedAnalysis(enriched)) {
+        await this.deps.onEvent?.({
+          projectId: input.projectId,
+          type: 'fallback',
+          reason: 'invalid-response',
+          message: 'Agent enrichment response did not include required analysis fields.',
+        });
         return this.deps.fallback.build({
           projectId: input.projectId,
           rawScan: input.rawScan,
@@ -97,12 +110,20 @@ export class AgentEnrichmentBoundary implements AgentEnrichmentBoundaryContract 
         });
       }
 
+      await this.deps.onEvent?.({ projectId: input.projectId, type: 'success', message: 'Agent enrichment completed' });
       return enriched;
     } catch (error) {
+      const reason = error instanceof EnrichmentTimeoutError ? 'timeout' : 'failure';
+      await this.deps.onEvent?.({
+        projectId: input.projectId,
+        type: 'fallback',
+        reason,
+        message: error instanceof Error ? error.message : 'Unknown enrichment error',
+      });
       return this.deps.fallback.build({
         projectId: input.projectId,
         rawScan: input.rawScan,
-        reason: error instanceof EnrichmentTimeoutError ? 'timeout' : 'failure',
+        reason,
         message: error instanceof Error ? error.message : 'Unknown enrichment error',
       });
     }
