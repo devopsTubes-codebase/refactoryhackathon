@@ -9,6 +9,11 @@ export interface BackendConfig {
     model: string;
     embeddingModel: string;
   };
+  gemini: {
+    apiKey: string;
+    baseURL: string;
+    embeddingModel: string;
+  };
   github: {
     cloneTimeoutMs: number;
     defaultBranch: string;
@@ -54,6 +59,11 @@ function getNumberEnv(name: string, fallback: number): number {
   return parsed;
 }
 
+function getOptionalEnv(name: string, fallback = ''): string {
+  const value = process.env[name] ?? fallback;
+  return value.trim();
+}
+
 const config: BackendConfig = {
   database: {
     url: getEnv('DATABASE_URL', 'changeme_database_url'),
@@ -64,6 +74,11 @@ const config: BackendConfig = {
     baseURL: getEnv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
     model: getEnv('AI_MODEL', 'gpt-4-turbo-preview'),
     embeddingModel: getEnv('AI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+  },
+  gemini: {
+    apiKey: getOptionalEnv('GEMINI_API_KEY'),
+    baseURL: getEnv('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta'),
+    embeddingModel: getEnv('GEMINI_EMBEDDING_MODEL', 'text-embedding-004'),
   },
   github: {
     cloneTimeoutMs: getNumberEnv('GITHUB_CLONE_TIMEOUT', 300000),
@@ -86,6 +101,14 @@ const config: BackendConfig = {
 
 export function getBackendConfig(): BackendConfig {
   return config;
+}
+
+export function isAIProviderConfigured(input: Pick<BackendConfig['ai'], 'apiKey'>): boolean {
+  return input.apiKey.trim() !== '' && input.apiKey !== 'changeme-openai-api-key';
+}
+
+export function isGeminiEmbeddingConfigured(input: Pick<BackendConfig['gemini'], 'apiKey'>): boolean {
+  return input.apiKey.trim() !== '';
 }
 
 export default config;

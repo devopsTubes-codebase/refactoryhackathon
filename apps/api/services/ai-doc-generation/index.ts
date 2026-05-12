@@ -87,10 +87,11 @@ export async function runAIDocGenerationPipelineStub(input: {
     markdown: formattedMarkdown,
   });
   const split = splitDocumentationSidebars(pages);
-  const sidebar = input.pipeline.sidebarGenerator.generateSidebar({
+  const primarySidebar = input.pipeline.sidebarGenerator.generateSidebar({
     projectId: input.projectId,
     pages: split.primaryPages,
   });
+  const sidebar = split.featureSubmenu ? [...primarySidebar, split.featureSubmenu] : primarySidebar;
 
   // TODO(Wave 1 dependency): history retention behavior must be finalized
   // after current-doc persistence and versioning source-of-truth are implemented.
@@ -101,7 +102,6 @@ export async function runAIDocGenerationPipelineStub(input: {
     modelOutput,
     pages,
     sidebar,
-    secondarySidebar: split.secondarySidebar,
   };
 }
 
@@ -146,7 +146,7 @@ const CANONICAL_SLUGS = new Set(['overview', 'architecture', 'api-reference', 's
 
 function splitDocumentationSidebars(pages: GeneratedDocsPage[]): {
   primaryPages: GeneratedDocsPage[];
-  secondarySidebar?: GeneratedSidebarItem;
+  featureSubmenu?: GeneratedSidebarItem;
 } {
   const hasCanonicalDocs = ['overview', 'architecture', 'api-reference', 'security'].every((slug) =>
     pages.some((page) => page.slug === slug),
@@ -158,20 +158,21 @@ function splitDocumentationSidebars(pages: GeneratedDocsPage[]): {
 
   const primaryPages = pages.filter((page) => CANONICAL_SLUGS.has(page.slug));
   const featurePages = pages.filter((page) => !CANONICAL_SLUGS.has(page.slug));
+  const featureSidebar =
+    featurePages.length > 0
+      ? {
+          title: 'Features',
+          slug: 'features',
+          children: featurePages.map((page) => ({
+            title: page.title.replace(/^Implementation:\s*/i, ''),
+            slug: page.slug,
+            children: [],
+          })),
+        }
+      : undefined;
 
   return {
     primaryPages,
-    secondarySidebar:
-      featurePages.length > 0
-        ? {
-            title: 'Features',
-            slug: 'features',
-            children: featurePages.map((page) => ({
-              title: page.title.replace(/^Implementation:\s*/i, ''),
-              slug: page.slug,
-              children: [],
-            })),
-          }
-        : undefined,
+    featureSubmenu: featureSidebar,
   };
 }

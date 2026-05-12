@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import {
   AgentEnrichmentBoundary,
   buildSemanticIndex,
@@ -15,13 +14,17 @@ import {
   DeterministicScanner,
   EnrichmentFallbackStrategy,
   FolderScanner,
+  GeminiEmbeddingGenerator,
   getBackendConfig,
   HeuristicAgentEnrichmentSpawner,
   initializePostgresSchema,
+  isAIProviderConfigured,
+  isGeminiEmbeddingConfigured,
   MarkdownFormatterStub,
   MarkdownPageSplitterStub,
   OpenAICompatibleAIClient,
-  OpenAICompatibleEmbeddingGenerator,
+  OpenAICompatibleAIClientStub,
+  NotImplementedEmbeddingGenerator,
   PostgresDocumentationStore,
   PostgresJobLogStore,
   PostgresPATStore,
@@ -67,6 +70,8 @@ export async function POST(request: Request, context: { params: { projectId: str
     }
 
     const config = getBackendConfig();
+    const aiProviderConfigured = isAIProviderConfigured(config.ai);
+    const geminiEmbeddingConfigured = isGeminiEmbeddingConfigured(config.gemini);
     const docsStore = new PostgresDocumentationStore();
     const vectorStore = new PostgresVectorIndexStore();
     const jobLogger = new JobLogger({ projectId: project.id, store: new PostgresJobLogStore() });
@@ -124,9 +129,14 @@ export async function POST(request: Request, context: { params: { projectId: str
 
       await projectStore.updateStatus(project.id, 'generating');
       await jobLogger.info('generating', 'Generating documentation pages');
+      if (!aiProviderConfigured) {
+        await jobLogger.warn('generating', 'AI provider not configured; using local documentation fallback');
+      }
       const docs = await createAIDocGenerationService({
         pipeline: createAIDocGenerationPipelineStub({
-          aiClient: new OpenAICompatibleAIClient(createOpenAIClient()),
+          aiClient: aiProviderConfigured
+            ? new OpenAICompatibleAIClient(createOpenAIClient())
+            : new OpenAICompatibleAIClientStub(),
           promptBuilder: new CodebaseDocPromptBuilderStub(),
           markdownFormatter: new MarkdownFormatterStub(),
           pageSplitter: new MarkdownPageSplitterStub(),
@@ -138,22 +148,50 @@ export async function POST(request: Request, context: { params: { projectId: str
         model: config.ai.model,
         suggestedDocStructure: analysis.suggestedDocStructure,
       }).generateDocs({ projectId: project.id, compactContext: analysis.compactContext });
+      const featureSubmenu = docs.sidebar.find((item) => item.slug === 'features');
       await jobLogger.info('generating', 'Generated documentation pages', {
         pageCount: docs.pages.length,
         sidebarCount: docs.sidebar.length,
-        hasSecondarySidebar: Boolean(docs.secondarySidebar),
+        hierarchy: featureSubmenu ? 'primary-sidebar-with-feature-submenu' : 'primary-sidebar',
+        featureSubmenuCount: featureSubmenu?.children?.length ?? 0,
       });
 
-      await jobLogger.info('indexing', 'Indexing generated documentation');
-      const semanticIndex = await buildSemanticIndex({
-        projectId: project.id,
-        model: config.ai.embeddingModel,
-        summary: analysis.compactContext,
-        docs: docs.pages,
-        embeddingGenerator: new OpenAICompatibleEmbeddingGenerator(new OpenAI({ apiKey: config.ai.apiKey, baseURL: config.ai.baseURL })),
-        vectorIndexStore: vectorStore,
+      await jobLogger.info('indexing', 'Indexing generated documentation with Gemini embeddings', {
+        provider: 'gemini',
+        model: config.gemini.embeddingModel,
       });
-      await jobLogger.info('indexing', 'Indexed generated documentation', { chunkCount: semanticIndex.chunkCount });
+      if (!geminiEmbeddingConfigured) {
+        await jobLogger.warn('indexing', 'Gemini embedding provider not configured; using local index fallback');
+      }
+      let semanticIndex;
+      try {
+        semanticIndex = await buildSemanticIndex({
+          projectId: project.id,
+          model: config.gemini.embeddingModel,
+          summary: analysis.compactContext,
+          docs: docs.pages,
+          embeddingGenerator: geminiEmbeddingConfigured
+            ? new GeminiEmbeddingGenerator({
+                apiKey: config.gemini.apiKey,
+                baseURL: config.gemini.baseURL,
+              })
+            : new NotImplementedEmbeddingGenerator(),
+          vectorIndexStore: vectorStore,
+        });
+      } catch (error) {
+        await jobLogger.warn('indexing', 'Gemini embedding provider failed; using local index fallback', {
+          errorCode: error instanceof Error ? error.name : 'UNKNOWN',
+        });
+        semanticIndex = await buildSemanticIndex({
+          projectId: project.id,
+          model: config.gemini.embeddingModel,
+          summary: analysis.compactContext,
+          docs: docs.pages,
+          embeddingGenerator: new NotImplementedEmbeddingGenerator(),
+          vectorIndexStore: vectorStore,
+        });
+      }
+      await jobLogger.info('indexing', 'Indexed generated documentation with Gemini embeddings', { chunkCount: semanticIndex.chunkCount });
       await projectStore.updateStatus(project.id, 'completed');
       await jobLogger.info('cleanup', 'Cleaning temporary source storage');
       await cleanupSourcePath(paths.rootPath);

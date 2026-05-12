@@ -1,4 +1,5 @@
 import {
+  GeminiEmbeddingGenerator,
   InMemoryVectorIndexStore,
   OpenAICompatibleEmbeddingGenerator,
   GroundedDocsRetrievalService,
@@ -41,6 +42,47 @@ describe('semantic search preparation', () => {
         embedding: [0.4, 0.5, 0.6],
         metadata: { source: 'codebase-summary' },
       },
+    ]);
+  });
+
+  test('maps Gemini embedding response into typed chunks', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const generator = new GeminiEmbeddingGenerator({
+      apiKey: 'test-gemini-key',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init: init ?? {} });
+        return {
+          ok: true,
+          json: async () => ({
+            embeddings: [
+              { values: [0.1, 0.2] },
+              { values: [0.3, 0.4] },
+            ],
+          }),
+        } as Response;
+      },
+    });
+
+    const result = await generator.generateEmbeddings({
+      projectId: 'project-gemini',
+      model: 'text-embedding-004',
+      chunks: [
+        { chunkId: 'docs:overview', text: 'Overview docs', metadata: { source: 'docs', pageSlug: 'overview' } },
+        { chunkId: 'summary:root', text: 'Project summary', metadata: { source: 'codebase-summary' } },
+      ],
+    });
+
+    expect(requests[0]?.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key=test-gemini-key');
+    expect(JSON.parse(String(requests[0]?.init.body))).toEqual({
+      requests: [
+        { model: 'models/text-embedding-004', content: { parts: [{ text: 'Overview docs' }] } },
+        { model: 'models/text-embedding-004', content: { parts: [{ text: 'Project summary' }] } },
+      ],
+    });
+    expect(result.embeddings.map((embedding) => embedding.embedding)).toEqual([
+      [0.1, 0.2],
+      [0.3, 0.4],
     ]);
   });
 

@@ -4,6 +4,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { GradientButton } from '@/components/ui/GradientButton';
 import { cn } from '@/components/ui/cn';
 import { docsArticle, docsNavGroups, type DocsNavPage } from './docsData';
+import type { DocsReaderModel, DocsReaderSidebarItem } from './docsViewModel';
 
 function SearchIcon() {
   return (
@@ -66,7 +67,7 @@ function NavPage({ page, nested = false }: { page: DocsNavPage; nested?: boolean
   );
 }
 
-function DocsSidebar() {
+function DocsSidebar({ model }: { model: DocsReaderModel }) {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-white/10 bg-[#080f17] lg:block">
       <div className="sticky top-16 flex h-[calc(100vh-64px)] flex-col">
@@ -76,22 +77,20 @@ function DocsSidebar() {
               <DocIcon />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">{docsArticle.projectName}</p>
-              <p className="text-xs text-[#a1a1aa]">{docsArticle.version}</p>
+              <p className="text-sm font-semibold text-white">{model.projectName}</p>
+              <p className="text-xs text-[#a1a1aa]">{model.version}</p>
             </div>
           </div>
         </div>
         <nav className="flex-1 overflow-y-auto px-4 py-5">
-          {docsNavGroups.map((group) => (
-            <div key={group.title} className="mb-7">
-              <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{group.title}</p>
-              <ul className="space-y-1">
-                {group.pages.map((page) => (
-                  <NavPage key={page.href} page={page} />
-                ))}
-              </ul>
-            </div>
-          ))}
+          <div className="mb-7">
+            <p className="mb-3 px-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Generated Docs</p>
+            <ul className="space-y-1">
+              {model.sidebar.map((page) => (
+                <NavPage key={page.href} page={page} />
+              ))}
+            </ul>
+          </div>
         </nav>
         <div className="border-t border-white/10 p-4">
           <div className="flex items-center gap-3">
@@ -129,25 +128,41 @@ function FeaturedDiagram() {
   );
 }
 
-function ArticleCanvas() {
+function ArticleCanvas({ model }: { model: DocsReaderModel }) {
+  const callouts =
+    model.projectId === 'project-alpha'
+      ? docsArticle.callouts
+      : [
+          {
+            variant: 'info' as const,
+            title: 'Generated content',
+            description: 'This reader is rendering persisted documentation generated from the analyzed repository.',
+          },
+          {
+            variant: 'warning' as const,
+            title: 'Grounded output',
+            description: 'Review generated content against source files before treating it as final project documentation.',
+          },
+        ];
+
   return (
     <article className="mx-auto w-full max-w-[848px] px-6 py-12 lg:px-0">
       <div className="flex flex-wrap items-center gap-2 text-sm text-[#a1a1aa]">
-        {docsArticle.breadcrumbs.map((crumb, index) => (
+        {model.breadcrumbs.map((crumb, index) => (
           <span key={crumb} className="flex items-center gap-2">
             <span className={index === docsArticle.breadcrumbs.length - 1 ? 'text-white' : ''}>{crumb}</span>
-            {index < docsArticle.breadcrumbs.length - 1 ? <Chevron /> : null}
+            {index < model.breadcrumbs.length - 1 ? <Chevron /> : null}
           </span>
         ))}
       </div>
 
-      <h1 className="mt-8 text-[56px] font-bold leading-tight tracking-[-0.055em] text-white">{docsArticle.title}</h1>
-      <p className="mt-6 text-xl leading-9 text-[#c6c8d1]">{docsArticle.intro}</p>
+      <h1 className="mt-8 text-[56px] font-bold leading-tight tracking-[-0.055em] text-white">{model.title}</h1>
+      <p className="mt-6 text-xl leading-9 text-[#c6c8d1]">{model.intro}</p>
 
       <FeaturedDiagram />
 
       <div className="space-y-8">
-        {docsArticle.sections.map((section) => (
+        {model.sections.map((section) => (
           <section key={section.heading}>
             <h2 className="text-2xl font-semibold tracking-[-0.03em] text-white">{section.heading}</h2>
             <p className="mt-3 text-base leading-8 text-[#a1a1aa]">{section.body}</p>
@@ -156,19 +171,19 @@ function ArticleCanvas() {
       </div>
 
       <div className="mt-10 space-y-4">
-        {docsArticle.callouts.map((callout) => (
+        {callouts.map((callout) => (
           <Callout key={`${callout.variant}-${callout.title}`} variant={callout.variant} title={callout.title} description={callout.description} />
         ))}
       </div>
 
       <div className="mt-12 grid gap-4 border-t border-white/10 pt-8 sm:grid-cols-2">
-        <a href={docsArticle.previous.href} className="rounded-2xl border border-white/10 p-5 text-[#a1a1aa] transition hover:bg-white/5 hover:text-white">
+        <a href={model.previous.href} className="rounded-2xl border border-white/10 p-5 text-[#a1a1aa] transition hover:bg-white/5 hover:text-white">
           <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Previous</span>
-          <p className="mt-2 font-semibold">{docsArticle.previous.label}</p>
+          <p className="mt-2 font-semibold">{model.previous.label}</p>
         </a>
-        <a href={docsArticle.next.href} className="rounded-2xl border border-white/10 p-5 text-right text-[#a1a1aa] transition hover:bg-white/5 hover:text-white">
+        <a href={model.next.href} className="rounded-2xl border border-white/10 p-5 text-right text-[#a1a1aa] transition hover:bg-white/5 hover:text-white">
           <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Next</span>
-          <p className="mt-2 font-semibold">{docsArticle.next.label}</p>
+          <p className="mt-2 font-semibold">{model.next.label}</p>
         </a>
       </div>
     </article>
@@ -199,7 +214,20 @@ function AskWikiPanel() {
   );
 }
 
-export function DocsReader() {
+export function DocsReader({ model }: { model?: DocsReaderModel }) {
+  const readerModel: DocsReaderModel = model ?? {
+    projectId: 'project-alpha',
+    projectName: docsArticle.projectName,
+    version: docsArticle.version,
+    breadcrumbs: docsArticle.breadcrumbs,
+    title: docsArticle.title,
+    intro: docsArticle.intro,
+    sections: docsArticle.sections,
+    sidebar: docsNavGroups.flatMap((group) => group.pages.map(toReaderSidebarItem)),
+    previous: docsArticle.previous,
+    next: docsArticle.next,
+  };
+
   return (
     <AppShell
       actions={
@@ -214,12 +242,22 @@ export function DocsReader() {
       }
     >
       <div className="flex min-h-[calc(100vh-64px)]">
-        <DocsSidebar />
+        <DocsSidebar model={readerModel} />
         <main className="min-w-0 flex-1">
-          <ArticleCanvas />
+          <ArticleCanvas model={readerModel} />
         </main>
         <AskWikiPanel />
       </div>
     </AppShell>
   );
+}
+
+function toReaderSidebarItem(page: DocsNavPage): DocsReaderSidebarItem {
+  return {
+    title: page.title,
+    href: page.href,
+    active: page.active,
+    slug: page.href.split('/').filter(Boolean).at(-1) ?? page.title.toLowerCase(),
+    children: page.children?.map(toReaderSidebarItem),
+  };
 }

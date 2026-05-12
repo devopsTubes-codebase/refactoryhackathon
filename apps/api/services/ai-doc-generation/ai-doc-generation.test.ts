@@ -242,15 +242,16 @@ describe('AI documentation generation pipeline', () => {
       { title: 'Architecture', slug: 'architecture', children: [] },
       { title: 'API Reference', slug: 'api-reference', children: [] },
       { title: 'Security', slug: 'security', children: [] },
+      {
+        title: 'Features',
+        slug: 'features',
+        children: [
+          { title: 'Proxy Service', slug: 'proxy-service', children: [] },
+          { title: 'Config Loader', slug: 'config-loader', children: [] },
+        ],
+      },
     ]);
-    expect(result.secondarySidebar).toEqual({
-      title: 'Features',
-      slug: 'features',
-      children: [
-        { title: 'Proxy Service', slug: 'proxy-service', children: [] },
-        { title: 'Config Loader', slug: 'config-loader', children: [] },
-      ],
-    });
+    expect(result.secondarySidebar).toBeUndefined();
   });
 
   test('builds living documentation prompt grounded in scanned file paths and implemented code', () => {

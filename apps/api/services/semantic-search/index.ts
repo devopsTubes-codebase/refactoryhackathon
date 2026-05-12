@@ -32,6 +32,8 @@ type OpenAICompatibleEmbeddingsClient = {
   };
 };
 
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
 const vectorIndexByProject = new Map<string, { projectId: string; embeddings: EmbeddingChunk[]; indexedAt: string }>();
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -93,6 +95,50 @@ export class OpenAICompatibleEmbeddingGenerator implements EmbeddingGeneratorCon
         text: chunk.text,
         metadata: chunk.metadata,
         embedding: response.data[index]?.embedding ?? [],
+      })),
+    };
+  }
+}
+
+export class GeminiEmbeddingGenerator implements EmbeddingGeneratorContract {
+  constructor(
+    private readonly input: {
+      apiKey: string;
+      baseURL?: string;
+      fetchImpl?: FetchLike;
+    },
+  ) {}
+
+  async generateEmbeddings(input: EmbeddingGenerationRequest): Promise<EmbeddingGenerationResponse> {
+    const baseURL = this.input.baseURL ?? 'https://generativelanguage.googleapis.com/v1beta';
+    const modelPath = input.model.startsWith('models/') ? input.model : `models/${input.model}`;
+    const fetchImpl = this.input.fetchImpl ?? fetch;
+    const response = await fetchImpl(`${baseURL.replace(/\/$/, '')}/${modelPath}:batchEmbedContents?key=${this.input.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: input.chunks.map((chunk) => ({
+          model: modelPath,
+          content: { parts: [{ text: chunk.text }] },
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Gemini embedding request failed');
+    }
+
+    const payload = (await response.json()) as { embeddings?: Array<{ values?: number[] }> };
+
+    return {
+      projectId: input.projectId,
+      model: input.model,
+      generatedAt: new Date().toISOString(),
+      embeddings: input.chunks.map((chunk, index) => ({
+        chunkId: chunk.chunkId,
+        text: chunk.text,
+        metadata: chunk.metadata,
+        embedding: payload.embeddings?.[index]?.values ?? [],
       })),
     };
   }
