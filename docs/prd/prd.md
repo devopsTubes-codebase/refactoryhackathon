@@ -1,127 +1,166 @@
 # PRD: Codebase Wiki
 
-## 1. Ringkasan
-
-**Codebase Wiki** adalah website untuk membuat dokumentasi project software secara otomatis dari source code. User dapat mengupload project dalam bentuk `.zip`, lalu sistem akan membaca struktur folder, dependency, dan tech stack untuk menghasilkan dokumentasi berbasis AI dalam format wiki/Markdown yang mudah dibaca.
-
-Produk ini ditujukan untuk membantu developer, tech lead, project manager, dan anggota tim baru memahami codebase lebih cepat tanpa harus menulis dokumentasi manual dari awal.
-
-### Tim
+## Team
 
 - Muhammad Daffa Fadillah
 - Muhammad Hashfi Hadyan
 - Arinza Aurelvia
 - Soraya Haidar Salma
 
-## 2. Problem Statement
+## Nama Project
+
+Codebase Wiki
+
+## Deskripsi Project
+
+Codebase Wiki adalah website untuk membuat dokumentasi project software secara otomatis dari source code. User dapat mengupload project dalam bentuk `.zip` atau memasukkan URL GitHub repository, lalu sistem akan membaca struktur folder, dependency, dan tech stack untuk menghasilkan dokumentasi berbasis AI dalam format wiki/Markdown yang mudah dibaca.
+
+Produk ini ditujukan untuk membantu developer, tech lead, project manager, dan anggota tim baru memahami codebase lebih cepat tanpa harus menulis dokumentasi manual dari awal.
+
+## Problem Statement
 
 Banyak tim software tidak sempat membuat dokumentasi project karena dokumentasi manual memakan waktu, cepat outdated, dan sering kalah prioritas dibanding coding. Akibatnya, onboarding developer baru menjadi lambat, knowledge tersebar di beberapa orang saja, dan stakeholder sulit memahami gambaran teknis project.
 
 Codebase Wiki menyelesaikan masalah ini dengan mengubah source code menjadi dokumentasi awal yang terstruktur secara otomatis menggunakan AI.
 
-## 3. Target User
+## Visi
 
-### Primary User
+Menjadi platform dokumentasi berbasis AI yang membantu tim software development memahami, mengelola, dan menjaga dokumentasi project secara lebih mudah, cepat, konsisten, dan selalu relevan.
 
-- Developer yang ingin memahami codebase baru dengan cepat.
-- Developer baru dalam tim yang perlu onboarding ke project.
+## Misi
 
-### Secondary User
+Membantu tim developer mengotomatisasi proses pembuatan dan pemeliharaan dokumentasi software agar dokumentasi lebih jelas, terstruktur, mudah dipahami, serta mendukung onboarding, kolaborasi, dan knowledge sharing dalam tim.
 
-- Tech lead yang ingin dokumentasi project tetap mudah dibuat dan diperbarui.
-- Project manager atau stakeholder teknis yang butuh gambaran project tanpa membaca source code langsung.
+## Goals
 
-### User Pain Points
+### Short-Term Goals (Hackathon / MVP)
 
-- Dokumentasi project sering tidak ada atau tidak lengkap.
-- Dokumentasi cepat outdated ketika codebase berubah.
-- Developer baru butuh waktu lama untuk memahami struktur project.
-- Knowledge project terlalu bergantung pada beberapa orang dalam tim.
+- Membuat website yang memungkinkan user untuk mengunggah source code project.
+- Membaca dan menganalisis struktur project secara otomatis.
+- Membantu mempercepat proses pembuatan dokumentasi awal dari hitungan jam menjadi beberapa menit.
 
-## 4. Goals
+### Mid-Term Goals
 
-- Mengurangi waktu memahami codebase dari hitungan hari menjadi beberapa menit.
-- Menghasilkan dokumentasi project otomatis dari struktur dan dependency source code.
-- Menampilkan hasil dokumentasi dalam format wiki yang rapi dan mudah dibaca.
-- Membantu tim membuat dokumentasi awal tanpa proses manual yang panjang.
-- Menyediakan demo end-to-end yang kuat untuk hackathon.
+- Menambahkan integrasi GitHub/GitLab agar dokumentasi dapat dibuat langsung dari repository project.
+- Menyediakan AI Chat Assistant yang dapat menjawab pertanyaan terkait codebase.
+- Menyediakan integrasi GitHub Actions agar dokumentasi dapat diperbarui otomatis dari workflow repository.
+- Mendukung lebih banyak framework dan bahasa pemrograman.
 
-## 5. Non-Goals
+### Long-Term Goals
 
-Untuk MVP hackathon, fitur berikut **tidak dikerjakan terlebih dahulu**:
+- Menjadi platform dokumentasi AI untuk software team.
+- Mengurangi masalah dokumentasi yang tidak lengkap, tidak konsisten, dan outdated dalam software development.
+- Membantu meningkatkan produktivitas dan kolaborasi software team.
 
-- Authentication/login.
+## Feature
+
+### Core Features
+
+- Sign In/Sign Up.
+- Upload project ZIP.
+- Input URL GitHub repository.
+- Input GitHub Personal Access Token (PAT) untuk akses private repository.
+- Multi Project (user bisa memasukkan lebih dari satu project).
+- Validasi file ZIP atau URL repository.
+- Extract ZIP atau clone repository secara otomatis.
+- Scan struktur folder, dependency, dan file penting.
+- Deteksi framework, library, dan tech stack utama.
+- Generate dokumentasi project otomatis dengan AI.
+- AI Chat untuk project.
+- Integrasi GitHub Actions untuk trigger update dokumentasi otomatis.
+- Tampilkan hasil dokumentasi dalam format wiki/Markdown.
+- Tampilkan loading/progress state selama proses analisis.
+- Tampilkan error handling jika proses gagal.
+
+### MVP Scope
+
+Fokus utama hackathon:
+
+- Input source project dari ZIP atau GitHub repo.
+- Scan project structure.
+- Generate documentation dengan AI.
+- Render hasil wiki di web.
+
+### Out of Scope untuk MVP
+
 - Database kompleks.
-- Multi-user workspace.
 - Realtime collaboration.
-- Versioning system untuk dokumentasi.
-- Editor dokumentasi penuh seperti CMS.
-- Chatbot tanya jawab codebase.
-- Import langsung dari GitHub repository.
+- Versioning system dokumentasi.
+- Diagram generation otomatis.
 
-> Catatan: GitHub import dan chatbot dapat menjadi fitur lanjutan setelah MVP stabil.
+## User Stories
 
-## 6. User Flow
+### Epic 1 — Upload & Analyze Codebase
 
-```text
-User membuka website
-  -> user upload project .zip
-  -> sistem validasi file
-  -> backend extract ZIP
-  -> sistem scan folder, file penting, dan dependency
-  -> sistem deteksi tech stack/framework
-  -> sistem menyusun context ringkas untuk AI
-  -> AI generate dokumentasi Markdown
-  -> user melihat hasil dalam tampilan wiki
-```
+- Sebagai developer, saya ingin mengupload file project `.zip` agar sistem dapat menganalisis source code secara otomatis.
+- Sebagai developer, saya ingin memasukkan URL GitHub repository agar saya tidak perlu mengompres project secara manual.
+- Sebagai developer, saya ingin memasukkan GitHub Personal Access Token (PAT) saat repository private agar sistem tetap bisa mengakses codebase saya dengan aman.
+- Sebagai developer, saya ingin sistem membaca struktur folder project agar saya dapat memahami arsitektur project dengan cepat.
+- Sebagai developer baru, saya ingin melihat tech stack dan dependency project agar onboarding menjadi lebih mudah.
 
-### Demo Flow Hackathon
+### Epic 2 — AI Documentation Generation
 
-```text
-Upload ZIP sample project
-  -> loading: AI analyzing codebase
-  -> generated wiki muncul
-  -> tampilkan Project Overview, Tech Stack, Folder Explanation, Setup Guide
-```
+- Sebagai project manager, saya ingin dokumentasi project dibuat otomatis agar tim tidak perlu menulis dokumentasi manual.
+- Sebagai developer, saya ingin mendapatkan penjelasan setiap folder/module agar saya memahami fungsi masing-masing bagian project.
+- Sebagai developer, saya ingin sistem menghasilkan setup guide otomatis agar project dapat dijalankan lebih cepat.
 
-## 7. Functional Requirements
+### Epic 3 — Wiki Display
 
-### FR-001 Upload Project ZIP
+- Sebagai user, saya ingin dokumentasi ditampilkan dalam format wiki yang rapi agar mudah dibaca.
+- Sebagai user, saya ingin melihat hasil dokumentasi tanpa membuka source code secara langsung.
 
-Sistem harus memungkinkan user mengupload file project software dalam format `.zip`.
+### Epic 4 — Productivity
 
-### FR-002 Validate Upload
+- Sebagai tech lead, saya ingin dokumentasi dapat dibuat ulang dari source code terbaru agar mengurangi outdated documentation.
+- Sebagai anggota tim baru, saya ingin memahami project dalam beberapa menit agar onboarding lebih cepat.
 
-Sistem harus memvalidasi file upload agar hanya menerima file `.zip` yang valid.
+### Epic 5 — AI Assistance
 
-### FR-003 Extract ZIP
+- Sebagai developer, saya ingin memahami project menggunakan chatbot agar saya dapat bertanya langsung tentang codebase.
 
-Sistem harus mengekstrak file ZIP secara otomatis setelah upload berhasil.
+### Epic 6 — Automation
 
-### FR-004 Read Project Structure
+- Sebagai developer, saya ingin menghubungkan GitHub Actions agar dokumentasi dapat di-regenerate otomatis ketika repository berubah.
 
+## Requirement
+
+### Functional Requirements
+
+**FR-001 — Input Project Source**  
+Sistem harus memungkinkan user memasukkan source project melalui dua cara:
+- upload file `.zip`
+- input URL GitHub repository
+
+**FR-002 — Validate Input**  
+Sistem harus memvalidasi input user:
+- jika upload ZIP, sistem hanya menerima file `.zip` yang valid
+- jika GitHub URL, sistem harus memvalidasi format URL dan memastikan repository dapat diakses
+- jika repository private, sistem harus menerima PAT yang valid dengan permission minimum untuk membaca repository
+
+**FR-003 — Fetch Project Source**  
+Sistem harus mengambil source project sesuai metode input:
+- jika upload ZIP, sistem mengekstrak file ZIP secara otomatis
+- jika GitHub URL public, sistem clone repository secara otomatis
+- jika GitHub URL private, sistem clone repository menggunakan PAT yang diberikan user
+
+**FR-004 — Read Project Structure**  
 Sistem harus membaca informasi dasar project, termasuk:
-
 - struktur folder
 - nama file penting
 - dependency project
 - file konfigurasi utama seperti `package.json` atau file dependency lain jika tersedia
 
-### FR-005 Detect Tech Stack
-
+**FR-005 — Detect Tech Stack**  
 Sistem harus dapat mengidentifikasi framework dan library utama dari project.
 
 Contoh output:
-
 - Next.js
 - React
 - Express
 - Tailwind CSS
 
-### FR-006 Generate AI Documentation
-
+**FR-006 — Generate AI Documentation**  
 Sistem harus menghasilkan dokumentasi otomatis berbasis AI yang mencakup:
-
 - Project Overview
 - Tech Stack
 - Folder Explanation
@@ -129,177 +168,124 @@ Sistem harus menghasilkan dokumentasi otomatis berbasis AI yang mencakup:
 - Main Features
 - Improvement Suggestions
 
-### FR-007 Render Wiki Documentation
-
+**FR-007 — Render Wiki Documentation**  
 Sistem harus menampilkan dokumentasi dalam format Markdown/wiki yang rapi dan mudah dibaca.
 
-### FR-008 Show Analysis Status
-
+**FR-008 — Show Analysis Status**  
 Sistem harus menampilkan status proses saat analisis dan AI generation sedang berjalan.
 
 Minimal status untuk MVP:
-
 - uploading
+- cloning (jika GitHub)
 - extracting
 - scanning
 - generating documentation
 - completed
 
-### FR-009 Error Handling
-
+**FR-009 — Error Handling**  
 Sistem harus menampilkan pesan error yang jelas jika:
-
 - upload gagal
+- GitHub URL tidak valid
+- repository tidak dapat diakses
+- PAT tidak valid atau permission PAT tidak cukup
 - file bukan `.zip`
 - extract ZIP gagal
 - AI gagal generate dokumentasi
 
-### FR-010 Sample Project for Demo
-
+**FR-010 — Sample Project for Demo**  
 Sistem sebaiknya menyediakan atau menyiapkan sample project agar demo hackathon dapat berjalan cepat dan stabil.
 
-## 8. Non-Functional Requirements
+**FR-011 — Authentication**  
+Sistem dapat menyediakan Sign In/Sign Up untuk mengelola akses user jika dibutuhkan pada pengembangan lanjutan.
 
-### NFR-001 Performance
+**FR-012 — Multi Project Support**  
+Sistem dapat memungkinkan user memasukkan lebih dari satu project agar dokumentasi dapat dikelola per project.
 
+**FR-013 — AI Chat Assistant**  
+Sistem dapat menyediakan AI Chat Assistant untuk menjawab pertanyaan user terkait isi codebase dan dokumentasi project.
+
+**FR-014 — Private Repository Access via PAT**  
+Sistem harus mendukung akses ke private GitHub repository menggunakan Personal Access Token (PAT) yang diberikan user secara aman untuk kebutuhan read-only repository access.
+
+**FR-015 — GitHub Actions Integration**  
+Sistem dapat menyediakan integrasi GitHub Actions agar dokumentasi dapat digenerate atau diperbarui otomatis dari workflow repository.
+
+### Non-Functional Requirements
+
+**NFR-001 — Performance**  
 Sistem harus mampu memproses project kecil sampai menengah dalam waktu kurang dari 60 detik untuk kebutuhan demo.
 
-### NFR-002 Usability
-
+**NFR-002 — Usability**  
 Interface harus sederhana, jelas, dan bisa digunakan tanpa tutorial panjang.
 
-### NFR-003 Reliability
-
+**NFR-003 — Reliability**  
 Demo flow utama harus dapat berjalan end-to-end dengan sample project yang sudah disiapkan.
 
-### NFR-004 Security
+**NFR-004 — Security**  
+Sistem hanya menerima file `.zip` atau GitHub repository yang dapat diakses, tidak menjalankan source code yang diupload, dan harus memperlakukan PAT sebagai credential sensitif yang tidak boleh ditampilkan kembali ke user atau dicatat ke log aplikasi.
 
-Sistem hanya menerima file `.zip` dan tidak menjalankan source code yang diupload.
+**NFR-005 — Scalability**  
+Arsitektur harus memungkinkan fitur lanjutan seperti chatbot codebase dan diagram generation tanpa rewrite besar.
 
-### NFR-005 Scalability
-
-Arsitektur harus memungkinkan fitur lanjutan seperti GitHub import, chatbot codebase, dan diagram generation tanpa rewrite besar.
-
-### NFR-006 Compatibility
-
+**NFR-006 — Compatibility**  
 Website harus dapat digunakan pada browser modern seperti Chrome, Edge, dan Firefox.
 
-## 9. Success Metrics
+## Criteria Success
 
-| Code | Metric | Target |
+| Code | Criteria | Target |
 | --- | --- | --- |
-| SC-001 | Successful Upload | User berhasil upload file ZIP valid tanpa error. |
+| SC-001 | Successful Input | User berhasil upload ZIP atau memasukkan GitHub repo URL tanpa error. |
 | SC-002 | Successful Analysis | Sistem berhasil membaca struktur folder, dependency, dan framework project. |
 | SC-003 | AI Documentation Generated | AI berhasil menghasilkan dokumentasi project otomatis. |
 | SC-004 | Readable Wiki | Dokumentasi tampil rapi, mudah dibaca, dan terstruktur. |
 | SC-005 | Faster Understanding | User dapat memahami gambaran project dalam kurang dari 5 menit. |
-| SC-006 | Demo Ready | Flow upload, analyze, generate, dan display berhasil didemokan end-to-end. |
+| SC-006 | Demo Ready | Flow input, analyze, generate, dan display berhasil didemokan end-to-end. |
+| SC-007 | GitHub Input Ready | User berhasil menggunakan input GitHub repository sebagai sumber project. |
+| SC-008 | Private Repo Access Ready | User berhasil mengakses private repository menggunakan PAT yang valid. |
 
-## 10. Risks & Open Questions
+## Catatan Tambahan
 
-### Risks
+### Demo Flow Hackathon
 
-- AI output terlalu umum jika context yang dikirim kurang informatif.
-- Token/cost dapat membesar jika sistem mengirim terlalu banyak source code ke AI.
-- File ZIP terlalu besar dapat memperlambat proses demo.
-- Dokumentasi yang dihasilkan bisa kurang akurat jika dependency atau struktur project tidak terbaca dengan baik.
-- Waktu hackathon terbatas, sehingga scope harus tetap fokus pada flow utama.
+```text
+Input GitHub URL atau upload ZIP sample project
+  -> loading: AI analyzing codebase
+  -> generated wiki muncul
+  -> tampilkan Project Overview, Tech Stack, Folder Explanation, Setup Guide
+```
 
-### Mitigation
+### Priority
 
-- Jangan kirim seluruh source code ke AI.
-- Kirim context ringkas seperti struktur folder, dependency, dan beberapa file penting.
-- Siapkan sample project untuk demo.
-- Batasi MVP pada upload ZIP, scan, AI generation, dan wiki viewer.
-
-### Open Questions
-
-- Model AI final yang dipakai: Gemini atau OpenAI?
-- Batas maksimal ukuran ZIP untuk MVP?
-- Apakah output dokumentasi perlu bisa diedit oleh user pada versi MVP?
-- Apakah hasil dokumentasi disimpan sementara atau hanya ditampilkan setelah generate?
-
-## Appendix A: MVP Scope Hackathon
-
-### Included
-
-- Upload project ZIP.
-- Extract dan scan struktur project.
-- Deteksi tech stack dan dependency.
-- Generate dokumentasi otomatis dengan AI.
-- Tampilkan hasil sebagai wiki/Markdown viewer.
-- Loading state dan error handling dasar.
-
-### Excluded
-
-- Authentication.
-- Database kompleks.
-- Realtime collaboration.
-- Versioning system.
-- Multi-user workspace.
-- GitHub import.
-- Chat with codebase.
-- Diagram generation otomatis.
-
-## Appendix B: Priority
-
-### Tier 1 - Wajib Demo
+#### Tier 1 - Wajib Demo
 
 - Upload ZIP.
+- Input GitHub URL.
 - Extract ZIP.
+- Clone GitHub repository.
 - Scan project structure.
 - Generate AI documentation.
 - Render wiki viewer.
 
-### Tier 2 - Nice to Have
+#### Tier 2 - Nice to Have
 
 - UI lebih polished.
 - Markdown navigation.
 - Syntax highlighting.
 - Dark mode.
+- Sign In/Sign Up.
+- Multi project support.
+- GitHub Actions integration.
 
-### Tier 3 - Bonus
+#### Tier 3 - Bonus
 
-- GitHub repository import.
 - Chat with codebase.
 - Architecture/dependency diagram generation.
 
-## Appendix C: Suggested Tech Stack
+### Open Questions
 
-Tech stack ini bersifat rekomendasi awal untuk eksekusi cepat hackathon.
-
-| Area | Recommendation | Reason |
-| --- | --- | --- |
-| Frontend | Next.js | Cepat untuk setup, cocok untuk fullstack MVP. |
-| Styling | Tailwind CSS | Cepat membuat UI bersih untuk demo. |
-| Backend | Next.js API Routes | Mengurangi overhead setup backend terpisah. |
-| Upload | Multer / compatible upload handler | Umum dipakai untuk upload file. |
-| ZIP Extract | unzipper / fs-extra | Praktis untuk extract dan scan file. |
-| Markdown Rendering | react-markdown | Cepat render hasil AI ke UI. |
-| AI | Gemini atau OpenAI | Pilih berdasarkan akses API dan biaya. |
-
-## Appendix D: AI Prompt Direction
-
-Prompt AI sebaiknya meminta output dokumentasi dengan struktur berikut:
-
-```text
-You are a senior software architect.
-
-Generate professional project documentation based on this codebase summary.
-
-Include:
-- Project Overview
-- Tech Stack
-- Folder Explanation
-- Main Features
-- Setup Guide
-- Possible Improvements
-```
-
-Context yang dikirim ke AI sebaiknya meliputi:
-
-- struktur folder
-- dependency dari `package.json` atau file dependency lain
-- framework/library terdeteksi
-- daftar file penting
-- ringkasan isi file penting jika diperlukan
+- Model AI final yang dipakai: Gemini atau OpenAI?
+- Batas maksimal ukuran ZIP untuk MVP?
+- Apakah PAT hanya dipakai sementara saat request berjalan atau perlu disimpan terenkripsi untuk penggunaan berulang?
+- Sejauh mana GitHub Actions integration masuk scope hackathon: webhook manual, workflow template, atau full integration?
+- Apakah output dokumentasi perlu bisa diedit oleh user pada versi MVP?
+- Apakah hasil dokumentasi disimpan sementara atau hanya ditampilkan setelah generate?
