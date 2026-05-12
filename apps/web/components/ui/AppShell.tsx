@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { cn } from './cn';
-import { GradientButton } from './GradientButton';
 import { LogoMark } from './LogoMark';
 
 interface AppShellProps {
@@ -21,16 +20,7 @@ export function AppShell({ title = 'Codebase Wiki', children, actions, nav, clas
             <span className="text-xl font-bold tracking-[-0.03em] text-[#dddfff]">{title}</span>
           </div>
           {nav ? <div className="hidden flex-1 justify-center md:flex">{nav}</div> : null}
-          <div className="flex items-center gap-3">
-            {actions ?? (
-              <>
-                <GradientButton variant="ghost" className="hidden px-3 py-2 sm:inline-flex">
-                  Log in
-                </GradientButton>
-                <GradientButton className="px-5 py-3">Get Started</GradientButton>
-              </>
-            )}
-          </div>
+          {actions ? <div className="flex items-center gap-3">{actions}</div> : <div aria-hidden="true" />}
         </div>
       </header>
       {children}
