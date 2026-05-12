@@ -7,7 +7,8 @@ export interface BackendConfig {
     embeddingModel: string;
   };
   github: {
-    cloneTimeout: number;
+    cloneTimeoutMs: number;
+    defaultBranch: string;
   };
   upload: {
     maxZipSize: number;
@@ -24,30 +25,61 @@ export interface BackendConfig {
   };
 }
 
+function getEnv(name: string, fallback?: string): string {
+  const value = process.env[name] ?? fallback;
+
+  if (value === undefined || value.trim() === '') {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
+function getNumberEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+
+  if (!rawValue || rawValue.trim() === '') {
+    return fallback;
+  }
+
+  const parsed = Number(rawValue);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive number`);
+  }
+
+  return parsed;
+}
+
 const config: BackendConfig = {
   ai: {
     provider: 'openai',
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-    model: process.env.AI_MODEL || 'gpt-4-turbo-preview',
-    embeddingModel: process.env.AI_EMBEDDING_MODEL || 'text-embedding-3-small',
+    apiKey: getEnv('OPENAI_API_KEY', 'changeme-openai-api-key'),
+    baseURL: getEnv('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+    model: getEnv('AI_MODEL', 'gpt-4-turbo-preview'),
+    embeddingModel: getEnv('AI_EMBEDDING_MODEL', 'text-embedding-3-small'),
   },
   github: {
-    cloneTimeout: parseInt(process.env.GITHUB_CLONE_TIMEOUT || '300000', 10),
+    cloneTimeoutMs: getNumberEnv('GITHUB_CLONE_TIMEOUT', 300000),
+    defaultBranch: getEnv('GITHUB_DEFAULT_BRANCH', 'main'),
   },
   upload: {
-    maxZipSize: parseInt(process.env.MAX_ZIP_SIZE || '52428800', 10),
+    maxZipSize: getNumberEnv('MAX_ZIP_SIZE', 52428800),
   },
   storage: {
-    tempPath: process.env.TEMP_STORAGE_PATH || '/tmp/codebase-wiki',
-    cleanupTTL: parseInt(process.env.CLEANUP_TTL || '1800000', 10),
-    docsPath: process.env.DOCS_STORAGE_PATH || '/tmp/codebase-wiki-docs',
-    vectorIndexPath: process.env.VECTOR_INDEX_PATH || '/tmp/codebase-wiki-index',
+    tempPath: getEnv('TEMP_STORAGE_PATH', '/tmp/codebase-wiki'),
+    cleanupTTL: getNumberEnv('CLEANUP_TTL', 1800000),
+    docsPath: getEnv('DOCS_STORAGE_PATH', '/tmp/codebase-wiki-docs'),
+    vectorIndexPath: getEnv('VECTOR_INDEX_PATH', '/tmp/codebase-wiki-index'),
   },
   encryption: {
     algorithm: 'aes-256-gcm',
-    secretKey: process.env.ENCRYPTION_SECRET_KEY || '',
+    secretKey: getEnv('ENCRYPTION_SECRET_KEY', 'changeme-encryption-secret-key-32-chars'),
   },
 };
+
+export function getBackendConfig(): BackendConfig {
+  return config;
+}
 
 export default config;

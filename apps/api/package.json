@@ -5,20 +5,30 @@
   "main": "./index.ts",
   "types": "./index.ts",
   "scripts": {
-    "test": "jest",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest --passWithNoTests",
     "lint": "eslint ."
   },
   "dependencies": {
+    "@auth/core": "^0.34.3",
+    "adm-zip": "^0.5.10",
+    "cryptr": "^6.4.0",
     "openai": "^4.28.0",
+    "remark": "^15.0.1",
+    "remark-gfm": "^4.0.1",
     "simple-git": "^3.22.0",
-    "adm-zip": "^0.5.10"
+    "vectra": "^0.14.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
     "@types/adm-zip": "^0.5.5",
-    "typescript": "^5.4.0",
-    "eslint": "^8.57.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0"
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.4.0"
   }
 }

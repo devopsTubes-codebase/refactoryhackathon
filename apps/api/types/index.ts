@@ -1,6 +1,10 @@
 export interface Project {
   id: string;
   userId: string;
+  ownership: {
+    ownerUserId: string;
+    createdBy: string;
+  };
   name: string;
   sourceType: 'zip' | 'github';
   sourceInput: string;
@@ -9,12 +13,78 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface SessionIdentity {
+  userId: string;
+  email?: string | null;
+  name?: string | null;
+}
+
+export interface CreateProjectInput {
+  name: string;
+  sourceType: 'zip' | 'github';
+  sourceInput: string;
+}
+
 export interface UserPAT {
+  id: string;
   userId: string;
   encryptedPAT: string;
+  ivHex: string;
+  authTagHex: string;
+  revokedAt?: string;
   githubUsername?: string;
   lastUsedAt?: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreUserPATInput {
+  userId: string;
+  pat: string;
+  githubUsername?: string;
+}
+
+export interface RevokeUserPATInput {
+  userId: string;
+  patId: string;
+}
+
+export interface DeleteUserPATInput {
+  userId: string;
+  patId: string;
+}
+
+export interface ResolveUserPATInput {
+  userId: string;
+  patId?: string;
+}
+
+export interface ResolvedUserPAT {
+  patId: string;
+  pat: string;
+  githubUsername?: string;
+}
+
+export interface GitHubClonePreparationInput {
+  userId: string;
+  repositoryUrl: string;
+  providedPAT?: string;
+  storedPatId?: string;
+}
+
+export interface GitHubClonePreparationResult {
+  repositoryUrl: string;
+  isPrivateClone: boolean;
+  resolvedPAT?: string;
+  resolvedFrom: 'none' | 'provided' | 'stored';
+  resolvedPatId?: string;
+}
+
+export interface UserPATStorageContract {
+  storePAT(input: StoreUserPATInput): Promise<{ patId: string }>;
+  resolvePATForUser(input: ResolveUserPATInput): Promise<ResolvedUserPAT | null>;
+  revokePAT(input: RevokeUserPATInput): Promise<void>;
+  deletePAT(input: DeleteUserPATInput): Promise<void>;
 }
 
 export interface IngestionJob {
@@ -54,18 +124,22 @@ export interface CodebaseAnalysis extends RawScanResult, EnrichedAnalysis {
 
 export interface GeneratedDocs {
   projectId: string;
-  pages: Array<{
-    slug: string;
-    title: string;
-    content: string;
-  }>;
-  sidebar: Array<{
-    title: string;
-    slug: string;
-    children?: Array<{ title: string; slug: string }>;
-  }>;
+  pages: GeneratedDocsPage[];
+  sidebar: GeneratedSidebarItem[];
   generatedAt: string;
   version: number;
+}
+
+export interface GeneratedDocsPage {
+  slug: string;
+  title: string;
+  content: string;
+}
+
+export interface GeneratedSidebarItem {
+  title: string;
+  slug: string;
+  children?: GeneratedSidebarItem[];
 }
 
 export interface DocsHistoryEntry {
@@ -74,6 +148,32 @@ export interface DocsHistoryEntry {
   generatedAt: string;
   pageCount: number;
   sourceType: 'zip' | 'github';
+}
+
+export interface RetrievedDocumentation {
+  projectId: string;
+  pages: GeneratedDocsPage[];
+  sidebar: GeneratedSidebarItem[];
+  generatedAt: string;
+  version: number;
+}
+
+export interface DocumentationStoreContract {
+  saveCurrentDocs(input: GeneratedDocs): Promise<void>;
+  getCurrentDocs(projectId: string): Promise<RetrievedDocumentation | null>;
+  overwriteCurrentDocsWithHistoryRetention(input: {
+    nextDocs: GeneratedDocs;
+    previousDocs: GeneratedDocs | null;
+  }): Promise<void>;
+}
+
+export interface DocsHistoryStoreContract {
+  appendHistory(input: GeneratedDocs): Promise<void>;
+  listHistory(projectId: string): Promise<GeneratedDocs[]>;
+}
+
+export interface DocsRetrievalServiceContract {
+  getDocumentation(projectId: string): Promise<RetrievedDocumentation | null>;
 }
 
 export interface VectorIndex {
@@ -89,4 +189,135 @@ export interface VectorIndex {
     };
   }>;
   indexedAt: string;
+}
+
+export type GroundedKnowledgeSourceType = 'generated-docs' | 'vector-index' | 'codebase-summary';
+
+export interface GroundedKnowledgeSource {
+  source: GroundedKnowledgeSourceType;
+  reference: string;
+  relevanceScore: number;
+  excerpt: string;
+}
+
+export interface SemanticIndexBuildRequest {
+  projectId: string;
+  docsPath: string;
+  summary: string;
+}
+
+export interface SemanticIndexBuildResult {
+  projectId: string;
+  indexedAt: string;
+  chunkCount: number;
+}
+
+export interface EmbeddingChunk {
+  chunkId: string;
+  text: string;
+  embedding: number[];
+  metadata: {
+    source: 'docs' | 'codebase-summary';
+    pageSlug?: string;
+  };
+}
+
+export interface EmbeddingGenerationRequest {
+  projectId: string;
+  model: string;
+  chunks: Array<{
+    chunkId: string;
+    text: string;
+    metadata: {
+      source: 'docs' | 'codebase-summary';
+      pageSlug?: string;
+    };
+  }>;
+}
+
+export interface EmbeddingGenerationResponse {
+  projectId: string;
+  model: string;
+  embeddings: EmbeddingChunk[];
+  generatedAt: string;
+}
+
+export interface EmbeddingGeneratorContract {
+  generateEmbeddings(input: EmbeddingGenerationRequest): Promise<EmbeddingGenerationResponse>;
+}
+
+export interface VectorIndexUpsertRequest {
+  projectId: string;
+  embeddings: EmbeddingChunk[];
+}
+
+export interface VectorIndexUpsertResult {
+  projectId: string;
+  indexedAt: string;
+  chunkCount: number;
+}
+
+export interface VectorIndexStoreContract {
+  upsertIndex(input: VectorIndexUpsertRequest): Promise<VectorIndexUpsertResult>;
+}
+
+export interface ChatRetrievalRequest {
+  projectId: string;
+  query: string;
+  maxResults: number;
+  allowedSources: GroundedKnowledgeSourceType[];
+}
+
+export interface ChatRetrievalResponse {
+  projectId: string;
+  query: string;
+  groundedOnly: true;
+  sources: GroundedKnowledgeSource[];
+  context: string;
+}
+
+export interface ChatRetrievalContract {
+  retrieveContext(input: ChatRetrievalRequest): Promise<ChatRetrievalResponse>;
+}
+
+export type RegenerateTriggerSource = 'manual' | 'github-actions';
+
+export interface RegenerateDocsRequest {
+  projectId: string;
+  triggeredBy: RegenerateTriggerSource;
+}
+
+export interface RegenerateDocsResponse {
+  projectId: string;
+  jobId: string;
+  accepted: true;
+}
+
+export interface RegenerateDocsEndpointRequest extends RegenerateDocsRequest {
+  requestedByUserId: string;
+}
+
+export interface RegenerateDocsEndpointResponse extends RegenerateDocsResponse {
+  requestedAt: string;
+}
+
+export interface GitHubActionsTriggerRequest {
+  projectId: string;
+  repository: string;
+  workflowRunId: string;
+  ref: string;
+  sha: string;
+  actor: string;
+  signature?: string;
+}
+
+export interface GitHubActionsTriggerResponse {
+  accepted: true;
+  projectId: string;
+  queuedJobId: string;
+  triggerSource: 'github-actions';
+}
+
+export interface GitHubActionsRegenerateContract {
+  triggerFromWorkflow(input: GitHubActionsTriggerRequest): Promise<GitHubActionsTriggerResponse>;
 }
