@@ -1,6 +1,7 @@
 import type { EnrichedAnalysis, RawScanResult } from '../../types';
 import type { OpenAICompatibleAIClientContract } from '../ai-doc-generation/ai-provider-client';
 import type { CompactContextBuilderContract } from './context-builder';
+import { CompactContextBuilder } from './context-builder';
 import type { TechStackDetectorContract } from './tech-stack-detector';
 
 export interface EnrichmentPromptSections {
@@ -395,9 +396,19 @@ function suggestDocStructure(techStack: string[], rawScan: RawScanResult): strin
 
 function appendGroundingContext(compactContext: string, rawScan: RawScanResult): string {
   const filePaths = rawScan.filePaths ?? [];
-  if (filePaths.length === 0 || compactContext.includes('files=')) {
+  const alreadyGrounded = compactContext.includes('files=') && compactContext.includes('[SOURCE_EVIDENCE]');
+  if (filePaths.length === 0 || alreadyGrounded) {
     return compactContext;
   }
+
+  const sourceEvidenceContext = new CompactContextBuilder().build({
+    projectId: rawScan.projectId,
+    rawScan,
+    techStack: [],
+    importantFiles: [],
+    suggestedDocStructure: [],
+  }).compactContext;
+  const sourceEvidenceSection = sourceEvidenceContext.match(/\[SOURCE_EVIDENCE\][\s\S]*$/)?.[0] ?? '[SOURCE_EVIDENCE]\nnone';
 
   return [
     compactContext,
@@ -405,6 +416,7 @@ function appendGroundingContext(compactContext: string, rawScan: RawScanResult):
     `files=${filePaths.slice(0, 50).join(', ')}`,
     `implementationHints=${buildImplementationSections(filePaths)
       .join(', ')}`,
+    sourceEvidenceSection,
   ].join('\n');
 }
 

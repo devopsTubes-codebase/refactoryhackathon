@@ -38,6 +38,9 @@ export class CompactContextBuilder implements CompactContextBuilderContract {
     const implementationHints = importantFiles
       .filter((file) => (input.rawScan.filePaths ?? []).includes(file))
       .join(', ');
+    const projectSignals = formatProjectSignals(input.rawScan.sourceEvidence ?? []);
+    const operationalSignals = formatOperationalSignals(input.rawScan);
+    const developerOnboarding = formatDeveloperOnboarding(input.rawScan, importantFiles);
     const sourceEvidence = formatSourceEvidence(input.rawScan.sourceEvidence ?? []);
 
     const seed = [
@@ -52,6 +55,9 @@ export class CompactContextBuilder implements CompactContextBuilderContract {
       `dependencies=${dependencyPreview}`,
       `excludedPaths=${input.rawScan.excludedPaths.slice(0, 20).join(', ')}`,
       `docSections=${input.suggestedDocStructure.join(' | ')}`,
+      projectSignals,
+      operationalSignals,
+      developerOnboarding,
       sourceEvidence,
     ].join('\n');
 
@@ -65,6 +71,50 @@ export class CompactContextBuilder implements CompactContextBuilderContract {
       tokenEstimate: enforced.tokenEstimate,
     };
   }
+}
+
+function formatProjectSignals(sourceEvidence: NonNullable<RawScanResult['sourceEvidence']>): string {
+  const projectEvidence = sourceEvidence
+    .filter((evidence) => evidence.path.toLowerCase().includes('readme') || evidence.categories.includes('overview') || evidence.categories.includes('feature'))
+    .slice(0, 6);
+
+  if (projectEvidence.length === 0) {
+    return '[PROJECT_SIGNALS]\nnone';
+  }
+
+  return [
+    '[PROJECT_SIGNALS]',
+    ...projectEvidence.map((evidence) => `${evidence.path}\n${evidence.excerpt.trim()}`),
+  ].join('\n');
+}
+
+function formatOperationalSignals(rawScan: RawScanResult): string {
+  const configSignals = rawScan.configFiles.slice(0, 8).map((file) => `${file.path}:${file.type}`);
+  const evidenceSignals = (rawScan.sourceEvidence ?? [])
+    .filter((evidence) => evidence.categories.includes('architecture') || evidence.categories.includes('configuration'))
+    .slice(0, 6)
+    .map((evidence) => `${evidence.path}\n${evidence.excerpt.trim()}`);
+
+  if (configSignals.length === 0 && evidenceSignals.length === 0) {
+    return '[OPERATIONAL_SIGNALS]\nnone';
+  }
+
+  return ['[OPERATIONAL_SIGNALS]', ...configSignals, ...evidenceSignals].join('\n');
+}
+
+function formatDeveloperOnboarding(rawScan: RawScanResult, importantFiles: string[]): string {
+  const onboardingFiles = importantFiles.slice(0, 8);
+  const onboardingEvidence = (rawScan.sourceEvidence ?? [])
+    .filter((evidence) => evidence.path.toLowerCase().includes('readme') || evidence.path.toLowerCase().includes('script') || evidence.categories.includes('configuration'))
+    .slice(0, 6)
+    .map((evidence) => `${evidence.path}\n${evidence.excerpt.trim()}`);
+
+  return [
+    '[DEVELOPER_ONBOARDING]',
+    `importantFiles=${onboardingFiles.join(', ') || 'none'}`,
+    `folders=${rawScan.folderStructure.slice(0, 12).join(', ') || 'none'}`,
+    ...onboardingEvidence,
+  ].join('\n');
 }
 
 function formatSourceEvidence(sourceEvidence: NonNullable<RawScanResult['sourceEvidence']>): string {

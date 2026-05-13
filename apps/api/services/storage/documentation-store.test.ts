@@ -18,6 +18,13 @@ function createDocs(version: number): GeneratedDocs {
       },
     ],
     sidebar: [{ title: 'Overview', slug: 'overview', children: [] }],
+    sourceFiles: [
+      {
+        path: 'src/routes/users.ts',
+        language: 'typescript',
+        content: 'router.get("/users", listUsers);',
+      },
+    ],
   };
 }
 
@@ -44,6 +51,7 @@ describe('documentation store and retrieval', () => {
       version: 2,
       pages: second.pages,
       sidebar: second.sidebar,
+      sourceFiles: second.sourceFiles,
     });
 
     expect(history).toHaveLength(1);
@@ -64,6 +72,7 @@ describe('documentation store and retrieval', () => {
       version: 1,
       pages: docs.pages,
       sidebar: docs.sidebar,
+      sourceFiles: docs.sourceFiles,
     });
   });
 });

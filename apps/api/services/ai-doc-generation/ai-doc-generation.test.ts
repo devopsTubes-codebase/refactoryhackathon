@@ -301,6 +301,26 @@ describe('AI documentation generation pipeline', () => {
     expect(prompt.userPrompt).toContain('router.get("/users", listUsers);');
   });
 
+  test('orients the prompt around project context, operational reality, and developer onboarding', () => {
+    const prompt = new CodebaseDocPromptBuilderStub().buildPrompt({
+      projectId: 'project-contextual-docs',
+      compactContext: [
+        'README says this service synchronizes commerce catalog data.',
+        'docs/architecture.md mentions workers, queues, and cron-driven imports.',
+        'package.json scripts include dev, build, lint, and test commands.',
+      ].join('\n'),
+      suggestedDocStructure: ['Overview', 'Architecture', 'API Reference', 'Security', 'Catalog Sync'],
+      maxPages: 8,
+    });
+
+    expect(prompt.systemPrompt).toContain('Use repository docs such as README files, docs/, ADRs, and PRDs to infer project purpose, users, and constraints.');
+    expect(prompt.systemPrompt).toContain('Treat docs as intent signals, but verify technical and operational claims against code, configuration, scripts, dependencies, and runtime evidence.');
+    expect(prompt.systemPrompt).toContain('Overview page must explain what the project is for, who it serves, the main user or operator workflows');
+    expect(prompt.systemPrompt).toContain('Architecture page must explain how the system runs in practice');
+    expect(prompt.systemPrompt).toContain('Write for developers who need both system understanding and concrete change guidance.');
+    expect(prompt.systemPrompt).toContain('Call out likely entrypoints, key modules, change surfaces, setup commands, and debugging touchpoints');
+  });
+
   test('service gives enough page budget for four canonical docs plus feature pages', async () => {
     const docsStore = new InMemoryDocumentationStoreStub();
     let capturedSystemPrompt = '';

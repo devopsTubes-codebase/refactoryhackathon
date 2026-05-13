@@ -405,6 +405,15 @@ describe('codebase analysis pipeline', () => {
       configFiles: [{ path: 'go.mod', type: 'go.mod' }],
       dependencies: { 'github.com/joho/godotenv': 'v1.5.1' },
       filePaths: ['main.go', 'go.mod', 'internal/proxy/config.go', 'internal/proxy/handler.go'],
+      sourceEvidence: [
+        {
+          path: 'internal/proxy/handler.go',
+          language: 'go',
+          categories: ['feature'],
+          excerpt: 'func HandleProxyRequest(w http.ResponseWriter, r *http.Request) {}',
+          truncated: false,
+        },
+      ],
       excludedPaths: [],
       scanDuration: 1,
     };
@@ -431,6 +440,8 @@ describe('codebase analysis pipeline', () => {
     const enriched = await spawner.spawn({ projectId: 'project-grounded', prompt, rawScan, timeoutMs: 1000 });
 
     expect(enriched.compactContext).toContain('files=main.go, go.mod, internal/proxy/config.go, internal/proxy/handler.go');
+    expect(enriched.compactContext).toContain('[SOURCE_EVIDENCE]');
+    expect(enriched.compactContext).toContain('path=internal/proxy/handler.go');
     expect(enriched.suggestedDocStructure).toEqual([
       'Overview',
       'Architecture',
@@ -572,6 +583,63 @@ describe('codebase analysis pipeline', () => {
     expect(compact.compactContext).toContain('router.get("/users", listUsers);');
     expect(compact.compactContext).toContain('[SECURITY_EVIDENCE]');
     expect(compact.compactContext).toContain('verifySession(request);');
+  });
+
+  test('compact context builder adds project, operational, and onboarding signals for developer-facing docs', () => {
+    const rawScan: RawScanResult = {
+      projectId: 'project-contextual-signals',
+      fileCount: 6,
+      folderStructure: ['src', 'src/routes', 'docs', 'scripts', 'infra'],
+      configFiles: [
+        { path: 'package.json', type: 'package.json' },
+        { path: 'docker-compose.yml', type: 'other' },
+      ],
+      dependencies: { next: '^14.2.0', laravel: '^11.0.0' },
+      filePaths: ['README.md', 'docs/architecture.md', 'scripts/dev.sh', 'src/routes/users.ts'],
+      sourceEvidence: [
+        {
+          path: 'README.md',
+          language: 'markdown',
+          categories: ['overview'],
+          excerpt: 'This platform helps retail operators synchronize product catalogs across channels.',
+          truncated: false,
+        },
+        {
+          path: 'docs/architecture.md',
+          language: 'markdown',
+          categories: ['architecture', 'configuration'],
+          excerpt: 'Production runs with queue workers, scheduled sync jobs, and Redis-backed background processing.',
+          truncated: false,
+        },
+        {
+          path: 'scripts/dev.sh',
+          language: 'bash',
+          categories: ['configuration'],
+          excerpt: 'npm install && npm run dev',
+          truncated: false,
+        },
+      ],
+      excludedPaths: [],
+      scanDuration: 5,
+    };
+
+    const compact = new CompactContextBuilder().build({
+      projectId: 'project-contextual-signals',
+      rawScan,
+      techStack: ['Next.js', 'Laravel'],
+      importantFiles: ['README.md', 'docs/architecture.md', 'scripts/dev.sh', 'src/routes/users.ts'],
+      suggestedDocStructure: ['Overview', 'Architecture', 'API Reference', 'Security'],
+    });
+
+    expect(compact.compactContext).toContain('[PROJECT_SIGNALS]');
+    expect(compact.compactContext).toContain('README.md');
+    expect(compact.compactContext).toContain('retail operators synchronize product catalogs');
+    expect(compact.compactContext).toContain('[OPERATIONAL_SIGNALS]');
+    expect(compact.compactContext).toContain('queue workers, scheduled sync jobs');
+    expect(compact.compactContext).toContain('docker-compose.yml');
+    expect(compact.compactContext).toContain('[DEVELOPER_ONBOARDING]');
+    expect(compact.compactContext).toContain('scripts/dev.sh');
+    expect(compact.compactContext).toContain('npm install && npm run dev');
   });
 
   test('deterministic analysis includes file paths and compact context exposes file breakdown', async () => {
