@@ -1,0 +1,739 @@
+import { randomUUID } from 'node:crypto';
+
+import { Pool, type QueryResultRow } from 'pg';
+
+import { getBackendConfig } from '../../config';
+import type {
+  ChatRetrievalRequest,
+  ChatRetrievalResponse,
+  CreateProjectInput,
+  DeleteUserPATInput,
+  DocsHistoryStoreContract,
+  DocsRetrievalServiceContract,
+  DocumentationStoreContract,
+  GeneratedDocs,
+  AppendJobLogInput,
+  JobLog,
+  JobLogStoreContract,
+  ListJobLogsInput,
+  MCPToken,
+  MCPTokenRecord,
+  MCPTokenStoreContract,
+  Project,
+  ResolveUserPATInput,
+  ResolvedUserPAT,
+  RevokeUserPATInput,
+  SessionIdentity,
+  StoreUserPATInput,
+  UserPATStorageContract,
+  VectorIndexStoreContract,
+  VectorIndexUpsertRequest,
+  VectorIndexUpsertResult,
+  WikiChatMessage,
+  WikiChatStoreContract,
+  WikiChatSession,
+} from '../../types';
+import { normalizeProjectSourceKey } from '../../utils';
+import { normalizeLogLimit, sanitizeJobLog } from '../job-logs';
+import { rankGroundedKnowledgeSources } from '../semantic-search';
+import { encryptText, decryptText } from './pat-crypto';
+
+let sharedPool: Pool | null = null;
+let schemaInitializationPromise: Promise<void> | null = null;
+
+export function buildPostgresPoolConfig(config = getBackendConfig()): ConstructorParameters<typeof Pool>[0] {
+  const connectionUrl = new URL(config.database.url);
+  connectionUrl.searchParams.delete('sslmode');
+  connectionUrl.searchParams.delete('sslrootcert');
+  connectionUrl.searchParams.delete('sslcert');
+  connectionUrl.searchParams.delete('sslkey');
+
+  const poolConfig: ConstructorParameters<typeof Pool>[0] = {
+    connectionString: connectionUrl.toString(),
+  };
+
+  if (config.database.sslEnabled) {
+    poolConfig.ssl = {
+      rejectUnauthorized: config.database.sslRejectUnauthorized,
+    };
+
+    if (config.database.sslRootCert) {
+      poolConfig.ssl.ca = config.database.sslRootCert;
+    }
+  }
+
+  return poolConfig;
+}
+
+export function getPostgresPool(): Pool {
+  if (!sharedPool) {
+    sharedPool = new Pool(buildPostgresPoolConfig());
+  }
+
+  return sharedPool;
+}
+
+export async function initializePostgresSchema(pool = getPostgresPool()): Promise<void> {
+  if (pool === sharedPool && schemaInitializationPromise) {
+    return schemaInitializationPromise;
+  }
+
+  const initialization = initializePostgresSchemaUnsafe(pool);
+  if (pool === sharedPool) {
+    schemaInitializationPromise = initialization.catch((error) => {
+      schemaInitializationPromise = null;
+      throw error;
+    });
+    return schemaInitializationPromise;
+  }
+
+  return initialization;
+}
+
+async function initializePostgresSchemaUnsafe(pool: Pool): Promise<void> {
+  await pool.query(`
+    create table if not exists projects (
+      id text primary key,
+      user_id text not null,
+      owner_user_id text not null,
+      created_by text not null,
+      name text not null,
+      source_type text not null check (source_type in ('zip', 'github')),
+      source_input text not null,
+      status text not null check (status in ('queued', 'uploading', 'cloning', 'extracting', 'scanning', 'generating', 'completed', 'failed')),
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await pool.query(`
+    create table if not exists user_pats (
+      id text primary key,
+      user_id text not null,
+      encrypted_pat text not null,
+      iv_hex text not null,
+      auth_tag_hex text not null,
+      github_username text,
+      revoked_at timestamptz,
+      last_used_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await pool.query(`
+    create table if not exists docs_current (
+      project_id text primary key references projects(id) on delete cascade,
+      payload jsonb not null,
+      version integer not null,
+      generated_at timestamptz not null
+    )
+  `);
+  await pool.query(`
+    create table if not exists docs_history (
+      id bigserial primary key,
+      project_id text not null references projects(id) on delete cascade,
+      payload jsonb not null,
+      version integer not null,
+      generated_at timestamptz not null
+    )
+  `);
+  await pool.query(`
+    create table if not exists job_logs (
+      id bigserial primary key,
+      project_id text not null references projects(id) on delete cascade,
+      level text not null check (level in ('info', 'warn', 'error', 'debug')),
+      phase text not null check (phase in ('queued', 'uploading', 'cloning', 'extracting', 'scanning', 'enriching', 'generating', 'indexing', 'cleanup', 'completed', 'failed')),
+      message text not null,
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await pool.query('create index if not exists job_logs_project_id_id_idx on job_logs(project_id, id)');
+  await pool.query(`
+    create table if not exists wiki_chat_sessions (
+      id text primary key,
+      project_id text not null references projects(id) on delete cascade,
+      user_id text not null,
+      title text not null,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `);
+  await pool.query(`
+    create table if not exists wiki_chat_messages (
+      id text primary key,
+      session_id text not null references wiki_chat_sessions(id) on delete cascade,
+      project_id text not null references projects(id) on delete cascade,
+      user_id text not null,
+      role text not null check (role in ('user', 'assistant')),
+      content text not null,
+      sources jsonb not null default '[]'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `);
+  await pool.query('create index if not exists wiki_chat_sessions_project_user_updated_idx on wiki_chat_sessions(project_id, user_id, updated_at desc)');
+  await pool.query('create index if not exists wiki_chat_messages_session_created_idx on wiki_chat_messages(session_id, created_at asc)');
+  await pool.query(`
+    create table if not exists mcp_tokens (
+      id text primary key,
+      project_id text not null references projects(id) on delete cascade,
+      user_id text not null,
+      name text not null,
+      token_hash text not null unique,
+      token_prefix text not null,
+      scopes jsonb not null default '["read:docs"]'::jsonb,
+      created_at timestamptz not null default now(),
+      last_used_at timestamptz,
+      revoked_at timestamptz
+    )
+  `);
+  await pool.query('create index if not exists mcp_tokens_project_user_created_idx on mcp_tokens(project_id, user_id, created_at desc)');
+  await initializePostgresVectorSchema(pool);
+}
+
+async function initializePostgresVectorSchema(pool: Pool): Promise<void> {
+  try {
+    await pool.query('create extension if not exists vector');
+    await pool.query(`
+      create table if not exists vector_chunks (
+        id bigserial primary key,
+        project_id text not null references projects(id) on delete cascade,
+        chunk_id text not null,
+        text text not null,
+        embedding vector(3) not null,
+        metadata jsonb not null,
+        indexed_at timestamptz not null default now(),
+        unique(project_id, chunk_id)
+      )
+    `);
+  } catch (error) {
+    if (isOptionalPgVectorError(error)) {
+      console.warn('[postgres] pgvector is unavailable; vector search will be disabled', {
+        code: error.code,
+        message: error.message,
+      });
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function isOptionalPgVectorError(error: unknown): error is Error & { code?: string } {
+  if (!(error instanceof Error)) return false;
+  const code = 'code' in error ? (error as { code?: unknown }).code : undefined;
+  return code === '0A000' || code === '42704' || /extension "vector" is not available|type "vector" does not exist/i.test(error.message);
+}
+
+export class PostgresProjectStore {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  private async collapseDuplicateProjects(projects: Project[]): Promise<Project[]> {
+    const seenSourceKeys = new Set<string>();
+    const duplicateProjectIds: string[] = [];
+    const uniqueProjects: Project[] = [];
+
+    for (const project of projects) {
+      const sourceKey = normalizeProjectSourceKey(project.sourceType, project.sourceInput);
+
+      if (!sourceKey || !seenSourceKeys.has(sourceKey)) {
+        if (sourceKey) {
+          seenSourceKeys.add(sourceKey);
+        }
+        uniqueProjects.push(project);
+        continue;
+      }
+
+      duplicateProjectIds.push(project.id);
+    }
+
+    if (duplicateProjectIds.length > 0) {
+      await this.pool.query('delete from projects where id = any($1::text[])', [duplicateProjectIds]);
+    }
+
+    return uniqueProjects;
+  }
+
+  async createProject(identity: SessionIdentity, input: CreateProjectInput): Promise<Project> {
+    const now = new Date().toISOString();
+    const normalizedSourceKey = normalizeProjectSourceKey(input.sourceType, input.sourceInput);
+
+    if (normalizedSourceKey) {
+      const existingProjects = await this.listProjects(identity);
+      const matchingProjects = existingProjects.filter(
+        (project) => normalizeProjectSourceKey(project.sourceType, project.sourceInput) === normalizedSourceKey,
+      );
+
+      if (matchingProjects.length > 0) {
+        const canonicalProject = [...matchingProjects].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+        const duplicateProjectIds = matchingProjects.filter((project) => project.id !== canonicalProject.id).map((project) => project.id);
+
+        if (duplicateProjectIds.length > 0) {
+          await this.pool.query('delete from projects where id = any($1::text[])', [duplicateProjectIds]);
+        }
+
+        const updatedProject = await this.pool.query(
+          'update projects set name=$2, source_input=$3, status=$4, updated_at=$5 where id=$1 returning *',
+          [canonicalProject.id, input.name.trim(), input.sourceInput.trim(), 'queued', now],
+        );
+
+        return rowToProject(updatedProject.rows[0]);
+      }
+    }
+
+    const project: Project = {
+      id: randomUUID(),
+      userId: identity.userId,
+      ownership: { ownerUserId: identity.userId, createdBy: identity.userId },
+      name: input.name.trim(),
+      sourceType: input.sourceType,
+      sourceInput: input.sourceInput.trim(),
+      status: 'queued',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.pool.query(
+      `insert into projects(id, user_id, owner_user_id, created_by, name, source_type, source_input, status, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        project.id,
+        project.userId,
+        project.ownership.ownerUserId,
+        project.ownership.createdBy,
+        project.name,
+        project.sourceType,
+        project.sourceInput,
+        project.status,
+        project.createdAt,
+        project.updatedAt,
+      ],
+    );
+
+    return project;
+  }
+
+  async listProjects(identity: SessionIdentity): Promise<Project[]> {
+    const result = await this.pool.query('select * from projects where user_id=$1 order by updated_at desc, created_at desc', [identity.userId]);
+    return this.collapseDuplicateProjects(result.rows.map(rowToProject));
+  }
+
+  async getProject(projectId: string): Promise<Project | null> {
+    const result = await this.pool.query('select * from projects where id=$1', [projectId]);
+    return result.rows[0] ? rowToProject(result.rows[0]) : null;
+  }
+
+  async updateStatus(projectId: string, status: Project['status']): Promise<Project | null> {
+    const result = await this.pool.query('update projects set status=$2, updated_at=now() where id=$1 returning *', [projectId, status]);
+    return result.rows[0] ? rowToProject(result.rows[0]) : null;
+  }
+}
+
+export class PostgresPATStore implements UserPATStorageContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async storePAT(input: StoreUserPATInput): Promise<{ patId: string }> {
+    const encrypted = encryptText(input.pat.trim());
+    const patId = randomUUID();
+    await this.pool.query(
+      `insert into user_pats(id,user_id,encrypted_pat,iv_hex,auth_tag_hex,github_username)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [patId, input.userId, encrypted.encryptedText, encrypted.ivHex, encrypted.authTagHex, input.githubUsername ?? null],
+    );
+    return { patId };
+  }
+
+  async resolvePATForUser(input: ResolveUserPATInput): Promise<ResolvedUserPAT | null> {
+    const result = await this.pool.query(
+      `select * from user_pats
+       where user_id=$1 and revoked_at is null and ($2::text is null or id=$2)
+       order by created_at desc limit 1`,
+      [input.userId, input.patId ?? null],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    await this.pool.query('update user_pats set last_used_at=now(), updated_at=now() where id=$1', [row.id]);
+    return {
+      patId: row.id,
+      pat: decryptText({ encryptedText: row.encrypted_pat, ivHex: row.iv_hex, authTagHex: row.auth_tag_hex }),
+      githubUsername: row.github_username ?? undefined,
+    };
+  }
+
+  async revokePAT(input: RevokeUserPATInput): Promise<void> {
+    await this.pool.query('update user_pats set revoked_at=now(), updated_at=now() where user_id=$1 and id=$2', [input.userId, input.patId]);
+  }
+
+  async deletePAT(input: DeleteUserPATInput): Promise<void> {
+    await this.pool.query('delete from user_pats where user_id=$1 and id=$2', [input.userId, input.patId]);
+  }
+}
+
+export class PostgresDocumentationStore implements DocumentationStoreContract, DocsHistoryStoreContract, DocsRetrievalServiceContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async saveCurrentDocs(input: GeneratedDocs): Promise<void> {
+    await this.pool.query(
+      `insert into docs_current(project_id,payload,version,generated_at) values ($1,$2,$3,$4)
+       on conflict(project_id) do update set payload=excluded.payload, version=excluded.version, generated_at=excluded.generated_at`,
+      [input.projectId, JSON.stringify(input), input.version, input.generatedAt],
+    );
+  }
+
+  async getCurrentDocs(projectId: string) {
+    const result = await this.pool.query('select payload from docs_current where project_id=$1', [projectId]);
+    const docs = result.rows[0]?.payload as GeneratedDocs | undefined;
+    if (!docs) return null;
+    return {
+      projectId: docs.projectId,
+      pages: docs.pages,
+      sidebar: docs.sidebar,
+      secondarySidebar: docs.secondarySidebar,
+      sourceFiles: docs.sourceFiles,
+      generatedAt: docs.generatedAt,
+      version: docs.version,
+    };
+  }
+
+  async getDocumentation(projectId: string) {
+    return this.getCurrentDocs(projectId);
+  }
+
+  async overwriteCurrentDocsWithHistoryRetention(input: { nextDocs: GeneratedDocs; previousDocs: GeneratedDocs | null }): Promise<void> {
+    if (input.previousDocs) await this.appendHistory(input.previousDocs);
+    await this.saveCurrentDocs(input.nextDocs);
+  }
+
+  async appendHistory(input: GeneratedDocs): Promise<void> {
+    await this.pool.query(
+      'insert into docs_history(project_id,payload,version,generated_at) values ($1,$2,$3,$4)',
+      [input.projectId, JSON.stringify(input), input.version, input.generatedAt],
+    );
+  }
+
+  async listHistory(projectId: string): Promise<GeneratedDocs[]> {
+    const result = await this.pool.query('select payload from docs_history where project_id=$1 order by version asc', [projectId]);
+    return result.rows.map((row) => row.payload as GeneratedDocs);
+  }
+}
+
+export class PostgresVectorIndexStore implements VectorIndexStoreContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async upsertIndex(input: VectorIndexUpsertRequest): Promise<VectorIndexUpsertResult> {
+    await this.pool.query('delete from vector_chunks where project_id=$1', [input.projectId]);
+    const seenChunkIds = new Map<string, number>();
+    for (const chunk of input.embeddings) {
+      const occurrence = seenChunkIds.get(chunk.chunkId) ?? 0;
+      seenChunkIds.set(chunk.chunkId, occurrence + 1);
+      const chunkId = occurrence === 0 ? chunk.chunkId : `${chunk.chunkId}:${occurrence + 1}`;
+
+      await this.pool.query(
+        `insert into vector_chunks(project_id,chunk_id,text,embedding,metadata)
+         values ($1,$2,$3,$4::vector,$5)`,
+        [input.projectId, chunkId, chunk.text, toVector3(chunk.embedding), JSON.stringify(chunk.metadata)],
+      );
+    }
+    return { projectId: input.projectId, indexedAt: new Date().toISOString(), chunkCount: input.embeddings.length };
+  }
+
+  async retrieveContext(input: ChatRetrievalRequest): Promise<ChatRetrievalResponse> {
+    const vectorResult = await this.pool.query(
+      `select chunk_id, text, metadata from vector_chunks
+       where project_id=$1
+       order by embedding <-> $2::vector
+       limit $3`,
+      [input.projectId, '[1,0,0]', input.maxResults],
+    );
+    const docsResult = await this.pool.query('select payload from docs_current where project_id=$1', [input.projectId]);
+    const docs = docsResult.rows[0]?.payload as GeneratedDocs | undefined;
+    const generatedDocSources =
+      docs?.pages.map((page) => ({
+        source: 'generated-docs' as const,
+        reference: `generated-docs:${page.slug}`,
+        relevanceScore: 0,
+        excerpt: `${page.title}\n\n${page.content}`,
+        pageSlug: page.slug,
+        title: page.title,
+      })) ?? [];
+    const vectorSources = vectorResult.rows.map((row) => ({
+      source: row.metadata?.source === 'codebase-summary' ? 'codebase-summary' as const : 'vector-index' as const,
+      reference: `vector-index:${row.chunk_id}`,
+      relevanceScore: 0,
+      excerpt: row.text,
+      pageSlug: row.metadata?.pageSlug,
+      title: row.metadata?.pageSlug ? humanizeSlug(row.metadata.pageSlug) : row.metadata?.source === 'codebase-summary' ? 'Project summary' : undefined,
+    }));
+    const sources = rankGroundedKnowledgeSources({
+      query: input.query,
+      maxResults: input.maxResults,
+      sources: [...generatedDocSources, ...vectorSources],
+    });
+
+    return {
+      projectId: input.projectId,
+      query: input.query,
+      groundedOnly: true,
+      sources,
+      context: sources.map((source) => source.excerpt).join('\n\n'),
+    };
+  }
+}
+
+export class PostgresJobLogStore implements JobLogStoreContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async appendLog(input: AppendJobLogInput): Promise<JobLog> {
+    const sanitized = sanitizeJobLog({
+      id: '0',
+      projectId: input.projectId,
+      level: input.level,
+      phase: input.phase,
+      message: input.message,
+      metadata: input.metadata ?? {},
+      createdAt: new Date().toISOString(),
+    });
+    const result = await this.pool.query(
+      `insert into job_logs(project_id, level, phase, message, metadata)
+       values ($1,$2,$3,$4,$5)
+       returning *`,
+      [
+        sanitized.projectId,
+        sanitized.level,
+        sanitized.phase,
+        sanitized.message,
+        JSON.stringify(sanitized.metadata),
+      ],
+    );
+    return rowToJobLog(result.rows[0]);
+  }
+
+  async listLogs(input: ListJobLogsInput): Promise<JobLog[]> {
+    const result = await this.pool.query(
+      `select * from job_logs
+       where project_id=$1 and id > $2
+       order by id asc
+       limit $3`,
+      [input.projectId, input.afterId ?? '0', normalizeLogLimit(input.limit)],
+    );
+    return result.rows.map(rowToJobLog);
+  }
+}
+
+export class PostgresWikiChatStore implements WikiChatStoreContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async listSessions(input: { projectId: string; userId: string }): Promise<WikiChatSession[]> {
+    const result = await this.pool.query(
+      `select * from wiki_chat_sessions
+       where project_id=$1 and user_id=$2
+       order by updated_at desc`,
+      [input.projectId, input.userId],
+    );
+    return result.rows.map(rowToWikiChatSession);
+  }
+
+  async createSession(input: { projectId: string; userId: string; title: string }): Promise<WikiChatSession> {
+    const result = await this.pool.query(
+      `insert into wiki_chat_sessions(id, project_id, user_id, title)
+       values ($1,$2,$3,$4)
+       returning *`,
+      [randomUUID(), input.projectId, input.userId, normalizeWikiChatTitle(input.title)],
+    );
+    return rowToWikiChatSession(result.rows[0]);
+  }
+
+  async getSession(input: { projectId: string; userId: string; sessionId: string }): Promise<WikiChatSession | null> {
+    const result = await this.pool.query(
+      `select * from wiki_chat_sessions
+       where id=$1 and project_id=$2 and user_id=$3`,
+      [input.sessionId, input.projectId, input.userId],
+    );
+    return result.rows[0] ? rowToWikiChatSession(result.rows[0]) : null;
+  }
+
+  async deleteSession(input: { projectId: string; userId: string; sessionId: string }): Promise<void> {
+    await this.pool.query(
+      `delete from wiki_chat_sessions
+       where id=$1 and project_id=$2 and user_id=$3`,
+      [input.sessionId, input.projectId, input.userId],
+    );
+  }
+
+  async listMessages(input: { projectId: string; userId: string; sessionId: string }): Promise<WikiChatMessage[]> {
+    const result = await this.pool.query(
+      `select * from wiki_chat_messages
+       where session_id=$1 and project_id=$2 and user_id=$3
+       order by created_at asc`,
+      [input.sessionId, input.projectId, input.userId],
+    );
+    return result.rows.map(rowToWikiChatMessage);
+  }
+
+  async appendMessage(input: {
+    projectId: string;
+    userId: string;
+    sessionId: string;
+    role: WikiChatMessage['role'];
+    content: string;
+    sources?: WikiChatMessage['sources'];
+  }): Promise<WikiChatMessage> {
+    const result = await this.pool.query(
+      `insert into wiki_chat_messages(id, session_id, project_id, user_id, role, content, sources)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       returning *`,
+      [
+        randomUUID(),
+        input.sessionId,
+        input.projectId,
+        input.userId,
+        input.role,
+        input.content,
+        JSON.stringify(input.sources ?? []),
+      ],
+    );
+    await this.pool.query('update wiki_chat_sessions set updated_at=now() where id=$1 and project_id=$2 and user_id=$3', [
+      input.sessionId,
+      input.projectId,
+      input.userId,
+    ]);
+    return rowToWikiChatMessage(result.rows[0]);
+  }
+}
+
+export class PostgresMCPTokenStore implements MCPTokenStoreContract {
+  constructor(private readonly pool = getPostgresPool()) {}
+
+  async createToken(input: {
+    projectId: string;
+    userId: string;
+    name: string;
+    tokenHash: string;
+    tokenPrefix: string;
+    scopes: string[];
+  }): Promise<MCPToken> {
+    const result = await this.pool.query(
+      `insert into mcp_tokens(id, project_id, user_id, name, token_hash, token_prefix, scopes)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       returning *`,
+      [randomUUID(), input.projectId, input.userId, input.name, input.tokenHash, input.tokenPrefix, JSON.stringify(input.scopes)],
+    );
+    return rowToMCPToken(result.rows[0]);
+  }
+
+  async listTokens(input: { projectId: string; userId: string }): Promise<MCPToken[]> {
+    const result = await this.pool.query(
+      `select * from mcp_tokens
+       where project_id=$1 and user_id=$2
+       order by created_at desc`,
+      [input.projectId, input.userId],
+    );
+    return result.rows.map(rowToMCPToken);
+  }
+
+  async findTokenByHash(tokenHash: string): Promise<MCPTokenRecord | null> {
+    const result = await this.pool.query('select * from mcp_tokens where token_hash=$1 limit 1', [tokenHash]);
+    return result.rows[0] ? rowToMCPTokenRecord(result.rows[0]) : null;
+  }
+
+  async markTokenUsed(tokenId: string): Promise<void> {
+    await this.pool.query('update mcp_tokens set last_used_at=now() where id=$1', [tokenId]);
+  }
+
+  async revokeToken(input: { projectId: string; userId: string; tokenId: string }): Promise<void> {
+    await this.pool.query(
+      `update mcp_tokens set revoked_at=now()
+       where id=$1 and project_id=$2 and user_id=$3`,
+      [input.tokenId, input.projectId, input.userId],
+    );
+  }
+}
+
+function rowToProject(row: QueryResultRow): Project {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    ownership: { ownerUserId: row.owner_user_id, createdBy: row.created_by },
+    name: row.name,
+    sourceType: row.source_type,
+    sourceInput: row.source_input,
+    status: row.status,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function rowToJobLog(row: QueryResultRow): JobLog {
+  return {
+    id: String(row.id),
+    projectId: row.project_id,
+    level: row.level,
+    phase: row.phase,
+    message: row.message,
+    metadata: row.metadata ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function rowToWikiChatSession(row: QueryResultRow): WikiChatSession {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    userId: row.user_id,
+    title: row.title,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function rowToWikiChatMessage(row: QueryResultRow): WikiChatMessage {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    projectId: row.project_id,
+    userId: row.user_id,
+    role: row.role,
+    content: row.content,
+    sources: row.sources ?? [],
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function rowToMCPToken(row: QueryResultRow): MCPToken {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    userId: row.user_id,
+    name: row.name,
+    tokenPrefix: row.token_prefix,
+    scopes: row.scopes ?? [],
+    createdAt: new Date(row.created_at).toISOString(),
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : undefined,
+    revokedAt: row.revoked_at ? new Date(row.revoked_at).toISOString() : undefined,
+  };
+}
+
+function rowToMCPTokenRecord(row: QueryResultRow): MCPTokenRecord {
+  return {
+    ...rowToMCPToken(row),
+    tokenHash: row.token_hash,
+  };
+}
+
+function normalizeWikiChatTitle(title: string): string {
+  const normalized = title.trim().replace(/\s+/g, ' ');
+  if (!normalized) return 'New chat';
+  return normalized.length > 64 ? `${normalized.slice(0, 61)}...` : normalized;
+}
+
+function humanizeSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function toVector3(values: number[]): string {
+  const vector = [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0];
+  return `[${vector.join(',')}]`;
+}
