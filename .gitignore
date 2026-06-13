@@ -14,6 +14,12 @@ wiki-team/
 *.tsbuildinfo
 generated-images/
 experiments/*-poc/
-deploy/k8s/secret.yaml
+deploy/
+scripts/manual-deploy.sh
+.env.deploy.example
 .codegraph/
 docs/devops/
+.github/
+.dockerignore
+Dockerfile
+docker-compose.yml
