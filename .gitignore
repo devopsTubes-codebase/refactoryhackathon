@@ -22,7 +22,6 @@ workflows/
 docs/
 experiments/
 .codegraph/
-.github/
-.dockerignore
-Dockerfile
-docker-compose.yml
+.opencode/
+.factory/
+.ruff_cache/

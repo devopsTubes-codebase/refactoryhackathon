@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  database:
+    image: postgres:15-alpine
+    container_name: codebase-wiki-db
+    environment:
+      POSTGRES_DB: codebase_wiki
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: codebase-wiki-backend
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:postgres@database:5432/codebase_wiki
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4-turbo-preview}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-3-small}
+      ENCRYPTION_SECRET_KEY: ${ENCRYPTION_SECRET_KEY}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXTAUTH_URL: http://localhost:3000
+      TEMP_STORAGE_PATH: /tmp/codebase-wiki
+      DOCS_STORAGE_PATH: /tmp/codebase-wiki-docs
+      VECTOR_INDEX_PATH: /tmp/codebase-wiki-index
+      MAX_ZIP_SIZE: 52428800
+      CLEANUP_TTL: 1800000
+      GITHUB_CLONE_TIMEOUT: 300000
+      GITHUB_DEFAULT_BRANCH: main
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - backend_storage:/tmp/codebase-wiki
+      - backend_docs:/tmp/codebase-wiki-docs
+      - backend_index:/tmp/codebase-wiki-index
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: codebase-wiki-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXT_PUBLIC_API_URL: http://backend:4000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  backend_storage:
+  backend_docs:
+  backend_index:
